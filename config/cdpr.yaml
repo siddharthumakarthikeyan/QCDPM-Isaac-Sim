@@ -44,8 +44,9 @@ layout:
   hold_fraction: 0.7              # robots stay put while the platform is within this fraction of the region the winches
                                   # alone can serve (cdpr_control.hold_table: tension limits + drone tilt/thrust caps, per
                                   # height) and then move only as far as needed. 0 = formation always centred on the platform
-  formation_acc: 0.8              # acceleration limit of the formation centre [m/s^2] (below the ground robots' 1.0), so the
-                                  # eight robots start and stop as one rigid formation. 0 = no limit
+  formation_acc: 0.4              # acceleration limit of the formation centre [m/s^2] (well below the ground robots' 1.0), so
+                                  # the eight robots start and stop as one rigid formation. At 0.8 a ground cable went slack
+                                  # for ~20 ms each time the formation started to move; at 0.4 none does. 0 = no limit
 
 cable:                       # 2 mm braided UHMWPE (Dyneema SK78) rope
   diameter: 0.002
@@ -175,6 +176,45 @@ task:
   descent_speed: 0.08        # [m/s]
   transit_speed: 0.45        # platform reference speed while carrying [m/s] (UGVs max 0.6 m/s)
   contact_force: 12.0        # wrist F/T force change that counts as "block landed" [N]
+
+core:                        # C++ model-based estimation and control (core/, built with core/build.sh)
+  enabled: false             # false: the Python controllers run on the true simulator state
+                             # true: simulated sensors -> estimators -> controllers, all in C++ (cdpr_sim/core_bridge.py)
+  use_truth: false           # true: the C++ controllers read the true state (no sensors or estimators in the loop)
+  disturbance_feedforward: true   # feed the observer's external-wrench estimate forward (payload the load cell misses)
+  k_twist: 3.5               # tension-mode winches reel at the reference twist + k_twist x pose error [1/s]: removes the
+                             # 0.08 Hz, 9%-damped mode the winch damping otherwise leaves (tests/core_test.py, section 3)
+  twist_max: 0.05            # bound on that correction [m/s]
+  k_ik: 1.0                  # length-mode winches: inverse-kinematics pose shifted by k_ik x integral of the pose error
+  k_adm: 1.0e-3              # length-mode winches: admittance on the load cell, dL_dot = k_adm (T - t_des) [m/(N s)]. Needed
+                             # with estimated anchors (1 mm of anchor error is about 4 N on a ground cable). Tracking the
+                             # figure-eight in Isaac: 5e-4 -> 2.0 mm mean, a cable slack 6.9% of the time; 1e-3 -> 2.9 mm,
+                             # 3.0%; 2e-3 -> 3.9 mm, 1.7%; 0 -> 1.6 mm, 47%. Not used with use_truth
+  adm_max: 0.02              # bound on that length trim [m]
+  t_guard: 4.0               # slack guard: a length-mode cable measured below this tension [N] is reeled in at
+  k_guard: 0.02              # k_guard x (t_guard - T) [m/s per N], on top of the admittance
+  ref_acc: 2.0               # reference governor: the platform reference is followed with at most this acceleration
+  ref_ang_acc: 1.5           # [m/s^2], [rad/s^2], so a velocity step in the command is not a tension impulse
+  drone_caps: true           # tension upper bounds from drone tilt / thrust
+  ground_caps: true          # tension upper bounds from ground-robot traction and tip-over
+  ground_margin: 0.8
+  sensors:                   # measurement models (white noise; the IMU also has bias and bias random walk)
+    noise: true
+    seed: 7
+    drone_fix_hz: 50         # position + heading fix of each drone (RTK / motion-capture class)
+    drone_fix_sigma: 0.005   # [m]
+    drone_yaw_sigma: 0.0087  # [rad]
+    ugv_fix_hz: 15           # planar pose of each ground robot from lidar localisation
+    ugv_fix_sigma: 0.005
+    ugv_yaw_sigma: 0.0052
+    wheel_sigma: 0.02        # wheel encoder rate [rad/s]
+    fair_sigma: 4.0e-4       # ground-robot fairlead position from the base inclinometer (0.1 deg on the mast) [m]
+    enc_sigma: 3.0e-5        # winch drum encoder [m]
+    enc_rate_sigma: 1.0e-3   # [m/s]
+    load_sigma: 0.1          # winch load cell [N]
+    tag_hz: 30               # AprilTag pose of the platform, one robot camera per frame
+    tag_sigma_p: 0.003       # in the camera frame [m]
+    tag_sigma_th: 0.0052     # [rad]
 
 sensors:
   enabled: true

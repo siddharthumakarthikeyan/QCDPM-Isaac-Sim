@@ -89,6 +89,41 @@ experiments/run_all.sh && python3 analysis/compare.py
 The default scene is a plain tiled floor and needs no downloads. The construction-site scene uses CC0 assets from
 Poly Haven: `python3 tools/fetch_assets.py`.
 
+## C++ core: model, estimation and control
+
+`core/` is a C++17 / Eigen library with the whole system modelled from the single unit up (cable, winch, quadrotor,
+ground robot, platform, then the coupled machine), the estimators that work from the robots' sensors, and the
+controllers. The derivations are in [`docs/model/cdpr_model.pdf`](docs/model/cdpr_model.pdf).
+
+```bash
+core/build.sh                                   # builds cdpr_core for the system Python and for Isaac Sim's Python
+python3 tests/core_test.py                      # model checks, closed loop, eigenvalue stability, speed (no Isaac)
+python3 tests/core_plan_test.py                 # lidar map -> team planner, no prior map (no Isaac)
+python3 tests/core_plan3d_test.py               # depth cameras + lidars -> elevation map -> 3-D team planner (no Isaac)
+$ISAAC run_traj.py --scenario plan3d --core --gui   # that planner re-planning in Isaac while the team moves
+$ISAAC run_traj.py --scenario course --core --gui   # harder site: the team pulls its ring in to pass a gate
+$ISAAC tests/isaac_physics_test.py --core --gui # the same core closing the loop in Isaac from simulated sensors
+$ISAAC run_traj.py --scenario track --core --gui
+```
+
+- **Estimation:** an IMU-driven error-state filter per drone, odometry plus pose fix per ground robot, and a platform
+  observer driven by the measured cable tensions and corrected by the cable lengths and AprilTag poses; it also
+  estimates the payload.
+- **Control:** SE(3) tracking wrench, a bounded tension distribution solved exactly (limits from winches, drone tilt
+  and thrust, ground-robot sliding and tipping), hybrid winch commands, geometric drone control with cable
+  feed-forward.
+- **Stability:** eigenvalues of the linearised closed-loop map of the full model over one control period.
+- **Planning:** an elevation map from the drones' downward depth cameras and the ground robots' lidars, and a 3-D A*
+  for the whole team on it (ground robots on flat ground, eight cables and the tool clear of the map), re-planned
+  while moving. The team goes around a cabin and lifts the payload over a pallet with no prior map; on the `course`
+  site it pulls the ground robots' ring in from 2.75 m to 1.65 m (cable lengths 2.96 m to 1.74 m) to pass a 4.4 m gate.
+- **Taut cables:** a reference governor, a load-cell admittance and slack guard on the length-controlled cables, and
+  a hold region that is checked for wrench feasibility.
+
+It is off by default (`core.enabled` in the config, or `--core`). The sensors are measurement models on the true
+simulator state (rates, noise, biases; ranges cast against the collider boxes); camera images and point clouds are
+not processed.
+
 ## ROS 2 interface
 
 The node runs inside the Isaac process and stamps everything with simulation time.
@@ -115,15 +150,21 @@ The full list is at the top of [`cdpr_sim/ros_iface.py`](cdpr_sim/ros_iface.py).
 | `run_task.py`, `run_traj.py` | recorded block-assembly tasks and trajectory scenarios |
 | `analysis/` | layout theory, workspace computation and its learned surrogate, hold-region analysis |
 | `experiments/` | Isaac experiments that test the analytical predictions |
-| `tests/` | Isaac-free reference simulation and headless Isaac checks |
+| `core/` | C++ model, estimators, controllers, coupled plant and planner; `cdpr_sim/core_bridge.py` connects it to the simulation |
+| `docs/model/` | derivations for the C++ core |
+| `tests/` | Isaac-free reference simulation, C++ core tests and headless Isaac checks |
 | `tools/` | offline rendering of recordings and video assembly |
 
 ## Status and limits
 
 This is a simulation; nothing here has been run on hardware.
 
-- The controllers use ground-truth poses from the simulator. The sensors are simulated and published but are not
-  yet in the control loop.
+- By default the controllers use ground-truth poses from the simulator. With the C++ core (`--core`) they run from
+  sensor models (rates, noise, biases on the true state); the rendered camera images and lidar scans are published
+  but not processed in the control loop.
+- The hold region of the formation was overestimated in earlier versions (its feasibility test did not check that the
+  wrench is met); it is corrected here and is about half as large. Recordings made before the correction are not
+  comparable.
 - Dense builds are not solved: in the enclosure, 19 of 42 blocks are more than 10 mm off, and the dome pattern
   does not stand.
 - The simulation runs at about 0.3× real time on one CPU core for physics.

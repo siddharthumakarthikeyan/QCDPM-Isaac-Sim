@@ -1,0 +1,86 @@
+\subsection{Model against the Python reference (\texttt{tests/core\_test.py}, part 1)}
+Structure matrix: maximum difference $3\times10^{-16}$ over 300 random poses. Tension distribution: identical to
+the closed form to $2\times10^{-12}$ N when no bound is active; projected gradient of the bounded solutions below
+$10^{-13}$. Drone caps equal to the Python implementation. Forward kinematics recovers a pose to $10^{-9}$ m.
+
+\subsection{Closed loop on the C++ plant (part 2)}
+Lift 0.3 m with $10^\circ$ roll and $15^\circ$ yaw, then a 22 N payload.
+\begin{center}\resizebox{\ifdim\width>\textwidth\textwidth\else\width\fi}{!}{\begin{tabular}{lcc}
+\toprule
+ & true state & sensors and estimators in the loop \\
+\midrule
+position error held after the move (mean / max) & 0.5 / 0.8 mm & 0.8 / 1.1 mm \\
+attitude error (max) & 0.10$^\circ$ & 0.26$^\circ$ \\
+under the payload (mean / peak) & 0.3 / 2.7 mm (announced) & 1.7 / 8.6 mm (not announced) \\
+cable tensions & 6.7--35.5 N & 5.2--36.9 N \\
+platform estimate error (mean / max) & -- & 1.3 / 4.1 mm, 0.78$^\circ$ max \\
+payload estimated by the observer & -- & $-22.0$ N (true $-22$) \\
+\bottomrule
+\end{tabular}}\end{center}
+The full loop (plant, sensors, estimators, controllers at 1 kHz) takes 10--13 $\mu$s per step, about 80 times
+real time on one core.
+
+\subsection{Stability (part 3)}
+Linearised map over 20 ms at the level pose, all loops closed, ground robots parked, 122 states.
+\begin{center}\resizebox{\ifdim\width>\textwidth\textwidth\else\width\fi}{!}{\begin{tabular}{lccc}
+\toprule
+ & $\rho(\bm A)$ & slowest pole & least-damped mode \\
+\midrule
+original hybrid scheme ($k_t=k_{ik}=k_a=0$) & 0.99990 & $-0.005$ s$^{-1}$ & 0.08 Hz, $\zeta=0.089$ \\
+with commanded twist \eqref{eq:twist} and pose-integral inverse kinematics & 0.99823 & $-0.089$ s$^{-1}$ & 22.8 Hz, $\zeta=0.15$ \\
+as deployed (plus admittance \eqref{eq:adm}) & 0.99944 & $-0.028$ s$^{-1}$ & 22.9 Hz, $\zeta=0.15$ \\
+\bottomrule
+\end{tabular}}\end{center}
+All eigenvalues are inside the unit circle. The $-0.089$ s$^{-1}$ pole is the drones' position integrator
+($k_i/k_p$); the $-0.028$ s$^{-1}$ pole is the admittance redistributing the ground-cable lengths; the 23 Hz mode
+is the cables' axial mode. This is a local result at one equilibrium, for the model, with the true state fed
+back; it is not a proof for the estimator-in-the-loop system or for large motions.
+
+\subsection{In Isaac Sim}
+\texttt{tests/isaac\_physics\_test.py}: the same manoeuvre, then a 1 m translation of the whole formation;
+statistics over every physics step after 1 s. The position error is measured against the commanded reference,
+so for the C++ core it includes the lag of the reference governor at the two command steps (the maxima).
+\begin{center}\resizebox{\ifdim\width>\textwidth\textwidth\else\width\fi}{!}{\begin{tabular}{lccc}
+\toprule
+ & Python controllers, & C++ core, & C++ core, \\
+ & true state & true state & sensors in the loop \\
+\midrule
+position error rms / max & 4.0 / 11.4 mm & 2.1 / 13.2 mm & 3.0 / 14.2 mm \\
+attitude error mean & 0.71$^\circ$ & 0.26$^\circ$ & 0.77$^\circ$ \\
+a cable slack & 0.55\% of the time & never & never \\
+lowest tension & 0 N & 1.4 N & 3.0 N \\
+platform estimate error mean / max & -- & -- & 1.3 / 2.8 mm \\
+\bottomrule
+\end{tabular}}\end{center}
+\texttt{run\_traj.py --scenario track --core} (figure-eight, 48 s, sensors in the loop): 4.4 mm mean, 15.9 mm max;
+a cable slack 0.15\% of the time (about 70 ms in total).
+
+\subsection{Sensor-based planning}
+\texttt{tests/core\_plan\_test.py} (2-D, lidar only, no prior map, replanning every 0.5 m): goal reached in 34
+plans of about 3 ms; path 16.5 m, around both obstacles; true clearances 0.55 m for the ground robots (0.55
+required) and for the cables (0.20).
+
+\texttt{tests/core\_plan3d\_test.py} (elevation map from depth cameras and lidars): goal reached in 31 plans of
+about 21 ms; path 15.4 m, around the cabin and over the pallet at $z=1.5$ m with the ground robots straddling it;
+true clearances 0.81 m for the ground robots, 0.32 m for the cables, 0.22 m for the tool.
+
+\texttt{run\_traj.py --scenario plan3d --core} (the same planner running in Isaac while the team moves, sensors
+and estimators in the loop): goal reached, 15.4 m in 57 s, 31 plans of 21 ms; tracking error 3.1 mm mean, 25 mm
+max at the corners of the plan; recorded clearances 0.80 m for the ground robots and 0.34 m for the cables; a
+cable slack 0.04\% of the time. The first attempt drove a ground robot into the stack of blocks on the site,
+which was not among the obstacles given to the range models; it is now.
+
+\texttt{run\_traj.py --scenario course --core} (reconfiguration; a 4.4 m gate in a 2 m wall for a team 5.0 m wide,
+a crate, two 3 m pillars; search over $(x,y,z,\text{ring scale})$ with the wrench-feasible (height, scale) pairs
+tabulated beforehand): goal reached, 19.4 m in 68 s, 39 plans of 92 ms. The ground robots' ring goes from 2.75 m to
+1.65 m at the gate and back, and the ground cables from 2.96 m to 1.74 m (drone cables 3.49--3.62 m). Recorded
+clearances: ground robots 0.80 m, cables 0.80 m, drones 1.73 m. Tracking error 2.8 mm mean, 25 mm max; no cable
+slack (lowest tension 0.4 N).
+
+\subsection{Limits}
+The sensors are measurement models on the true simulator state: ranges are cast against the collider boxes, tag
+poses and fixes are the true values with noise; no images or point clouds are processed and there is no latency.
+The sensors do not see the team itself. The platform has no inertial sensor, so its attitude estimate
+(0.3--0.9$^\circ$) is the weakest part. The planner assumes the formation centred on the platform and a level
+platform, and treats unseen space as free. The cables are never slack in the manoeuvre test but still are for a
+few tens of milliseconds in the two long trajectory runs.

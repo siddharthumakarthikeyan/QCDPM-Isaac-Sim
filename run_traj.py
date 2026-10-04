@@ -5,6 +5,13 @@ run_task.py, plus the reference path).
   track   3D Lissajous figure-eight (1.8 x 1.2 x 0.5 m, 24 s per lap, 2 laps): controller tracking test
   plan    RRT* -> prune -> Bezier path for the whole team (platform, ground robots, cables) past a site cabin and
           a pallet (cdpr_sim/planning.py); the obstacles are real colliders in the run
+  plan3d  the same site with no prior map: the C++ planner (core/src/planning.cpp) builds an elevation map from the
+          drones' downward depth cameras and the ground robots' lidars (range models cast against the colliders, from
+          the robots' estimated poses when --core is on) and re-plans in 3-D every 0.5 m while the team moves
+  course  plan3d on a harder site, with reconfiguration: two walls leave a 4.4 m gate that the team (5.0 m wide) can
+          only pass by pulling the ground robots' ring in, then a crate to lift the payload over and two 3 m pillars to
+          thread between. The planner searches (x, y, z, ring scale); the winches change the cable lengths as the
+          ring and the height change
   paint   raster over the upper surface of an aircraft wing (cdpr_sim/aircraft.py), spray lance 0.15 m above the skin;
           the wing is a real collider and every sample is checked for the platform, ground robots and cables
   print   one continuous spiral for 3D printing a twisted, four-lobed wall 0.42 m high in 30 mm layers; the nozzle
@@ -21,10 +28,12 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["track", "plan", "paint", "print"])
+ap.add_argument("--scenario", required=True, choices=["track", "plan", "plan3d", "course", "paint", "print"])
 ap.add_argument("--gui", action="store_true")
 ap.add_argument("--fps", type=float, default=30.0)
 ap.add_argument("--seed", type=int, default=4)
+ap.add_argument("--core", action="store_true", help="C++ core in the loop: simulated sensors -> estimators -> controllers")
+ap.add_argument("--core-truth", action="store_true", help="C++ controllers on the true state")
 args, _ = ap.parse_known_args()
 
 from isaacsim import SimulationApp  # noqa: E402
@@ -47,6 +56,8 @@ from cdpr_sim.scene import build_scene  # noqa: E402
 
 cfg = yaml.safe_load(open(os.path.join(ROOT, "config", "cdpr.yaml")))
 cfg["task"]["pattern"] = "column"
+if args.core or args.core_truth:
+    cfg.setdefault("core", {}).update(enabled=True, use_truth=args.core_truth)
 dt_ref = cfg["sim"]["physics_dt"]
 if args.scenario == "paint":
     cfg["environment"]["type"] = "hangar"
@@ -107,6 +118,18 @@ elif args.scenario == "print":
     extra = dict(smooth=path, layer=layer, n_layers=n_layers)
     print(f"[print] spiral {n_layers} layers, {float(np.linalg.norm(np.diff(path, axis=0), axis=1).sum()):.1f} m, "
           f"platform z {path[0, 2]:.2f} -> {path[-1, 2]:.2f} m", flush=True)
+elif args.scenario in ("plan3d", "course"):
+    if args.scenario == "plan3d":
+        obstacles = [("cabin", (-0.5, -1.3, 1.1), (1.6, 1.2, 2.2)), ("pallet", (-0.6, 2.4, 0.3), (1.2, 0.8, 0.6))]
+        start, goal = np.array([-0.5, -4.4, 1.3]), np.array([-0.5, 4.6, 1.3])
+    else:
+        obstacles = [("wall_left", (-5.95, -3.0, 1.0), (7.1, 0.3, 2.0)), ("wall_right", (5.75, -3.0, 1.0), (7.5, 0.3, 2.0)),
+                     ("crate", (-0.2, 2.2, 0.3), (1.0, 1.0, 0.6)), ("pillar_a", (1.6, 4.4, 1.5), (0.5, 0.5, 3.0)),
+                     ("pillar_b", (-2.8, 3.6, 1.5), (0.5, 0.5, 3.0))]
+        start, goal = np.array([-0.2, -6.5, 1.3]), np.array([-0.2, 7.6, 1.3])
+    cfg["platform"]["start_position"] = [float(v) for v in start]
+    cfg["layout"]["hold_fraction"] = 0.0                 # the planner checks the team with the formation centred on the platform
+    traj = np.array([start, goal])                       # the path itself is decided while moving
 else:
     # travel 9 m along +y: a site cabin that the whole team has to go around, then a low pallet of blocks that the
     # ground robots straddle while the payload is lifted over it
@@ -157,9 +180,9 @@ if args.scenario in ("paint", "print"):                  # process tools: the sc
         tip_drop = build_print_head(stage, cfg)
         trail = Trail(stage, "/World/Print", "bead", 0.05, pbr_material(stage, "/World/Looks/print_bead", "rough_concrete", res="1k",
                                                                          tint=(0.80, 0.79, 0.77)), height=0.031, spacing=0.02)
-else:
+elif args.scenario != "course":
     build_blocks(stage, cfg, 0, info["textures"]["block"])
-if args.scenario == "plan":
+if args.scenario in ("plan", "plan3d", "course"):
     build_colliders(stage, obstacles)
 app.update()
 if args.gui:
@@ -168,7 +191,7 @@ if args.gui:
 
     carb.settings.get_settings().set("/rtx/raytracing/fractionalCutoutOpacity", True)     # translucent spray and propellers
 
-    ViewportManager.set_camera_view("/OmniverseKit_Persp", eye=[-11.0, -7.5, 6.5] if args.scenario == "plan" else ([6.0, 6.5, 3.4] if args.scenario == "paint" else ([1.5, -7.0, 3.0] if args.scenario == "print" else [-5.5, -6.5, 3.6])),
+    ViewportManager.set_camera_view("/OmniverseKit_Persp", eye=[-11.0, -7.5, 6.5] if args.scenario in ("plan", "plan3d") else [-12.0, -9.0, 8.5] if args.scenario == "course" else ([6.0, 6.5, 3.4] if args.scenario == "paint" else ([1.5, -7.0, 3.0] if args.scenario == "print" else [-5.5, -6.5, 3.6])),
                                     target=[-0.5, 0.6, 1.3] if args.scenario == "paint" else ([1.5, 0, 0.8] if args.scenario == "print" else [-1.0, 0, 1.0]))
 SimulationManager.set_physics_sim_device("cpu")
 SimulationManager.set_physics_dt(cfg["sim"]["physics_dt"])
@@ -192,8 +215,147 @@ events = []
 T_HOLD = 3.0
 
 
+class Navigator:
+    """Sensor-based 3-D planning while moving: elevation map from depth cameras and lidars, C++ planner, re-plan
+    every `replan` metres. The reference moves along the current plan at `speed`."""
+
+    def __init__(self, speed=0.30, replan=0.5):
+        from cdpr_sim import cdpr_core as cc
+        from cdpr_sim.cdpr_control import corner_points, formation
+
+        self.cc, self.speed, self.replan = cc, speed, replan
+        dr, ug = formation(cfg, np.zeros(2))
+        sh = cc.TeamShape()
+        sh.ugv_offset, sh.drone_offset, sh.corner = ug[:, :2], dr[:, :2], corner_points(cfg["platform"]["side"])[:4, :2]
+        sh.fairlead_h, sh.drone_alt, sh.half_side = cfg["ugv"]["attach_height"], cfg["layout"]["drone_altitude"], cfg["platform"]["side"] / 2
+        sh.tool_drop, sh.z_min, sh.z_max = 0.67, 0.9, 2.0
+        self.R0 = cfg["layout"]["ugv_radius"]
+        if args.scenario == "course":                    # the ring of ground robots may be pulled in to 60%
+            sh.scales = [0.6, 0.7, 0.8, 0.9, 1.0]
+            sh.feasible = self.feasible_table(sh, dr, ug)
+        self.sh = sh
+        self.scale, self.ring_rate = 1.0, 0.15 / self.R0    # ring radius changes at 0.15 m/s
+        self.grid = cc.ElevationGrid(np.array([-9.0, -9.0]), 0.10, 180, 180)
+        if blk_view is not None:                         # the stack of blocks on the site is an obstacle too: the sensors see it
+            bp = blk_view.get_transforms().reshape(-1, 7)[:, :3]
+            b_lo, b_hi = bp.min(0) - 0.16, bp.max(0) + 0.16
+            b_lo[2], b_hi[2] = 0.0, bp[:, 2].max() + cfg["blocks"]["size"][2] / 2
+            obstacles.append(("blocks", tuple((b_lo + b_hi) / 2), tuple(b_hi - b_lo)))
+        lo = [np.array(c) - np.array(sz) / 2 for _, c, sz in obstacles]
+        hi = [np.array(c) + np.array(sz) / 2 for _, c, sz in obstacles]
+        self.boxes3 = [cc.Box3(a, b) for a, b in zip(lo, hi)]
+        self.lidar_h = cfg["ugv"]["ground_clearance"] + cfg["ugv"]["chassis_size"][2] / 2 + cfg["sensors"]["lidar_2d"]["mount_offset"][2]
+        self.boxes2 = [cc.Box2(a[:2], b[:2]) for a, b in zip(lo, hi) if a[2] <= self.lidar_h <= b[2]]
+        self.rng = np.random.default_rng(args.seed)
+        self.path, self.seg, self.since, self.plans, self.t_plan, self.done, self.stuck = [], 0, 1e9, 0, 0.0, False, False
+        self.p = start.copy()
+        self.dir = np.zeros(3)
+        self.scales_used, self.ring_min = set(), self.R0
+        self.len_min, self.len_max = np.full(8, 1e9), np.zeros(8)
+
+    def feasible_table(self, sh, dr, ug):
+        """Which (height, ring scale) pairs the cables can hold: level platform, tool weight, exact tension distribution."""
+        from cdpr_sim.cdpr_control import corner_points
+        from cdpr_sim.core_bridge import params_from_cfg
+
+        cc, P, b = self.cc, params_from_cfg(cfg), corner_points(cfg["platform"]["side"])
+        g_ = cfg["gripper"]
+        w = np.array([0, 0, (cfg["platform"]["mass"] + g_["wrist"]["mass"] + g_["tool"]["mass"] + 2 * g_["finger"]["mass"]) * cfg["sim"]["gravity"], 0, 0, 0])
+        zs = np.arange(sh.z_min, sh.z_max + 1e-9, sh.dz)
+        ok = np.zeros((len(zs), len(sh.scales)), np.int32)
+        for i, z in enumerate(zs):
+            for j, sc in enumerate(sh.scales):
+                W, u, _ = cc.structure_matrix(np.array([0, 0, z]), np.eye(3), b, np.vstack([dr, ug * [sc, sc, 1]]))
+                lo_, hi_ = cc.tension_bounds(P, u)
+                td = cc.tension_distribution(W, w, lo_, hi_, P.tension.t_ref, np.full(8, P.tension.t_ref), 1e-6, 0.0)
+                ok[i, j] = np.linalg.norm(td.residual) < 0.05 and td.t.min() > P.tension.t_min + 0.5
+        return ok
+
+    def sense(self):
+        cc, s = self.cc, rt.state
+        est = rt.core.core.est if rt.core is not None else None          # the robots' own estimates when the core runs
+        for k in range(4):
+            p = est.drone[k].p if est is not None else s["pos"][1 + k]
+            pts = cc.depth_scan(s["pos"][1 + k], 0.0, self.boxes3, 64, np.deg2rad(90.0), 12.0)   # what the camera sees
+            pts = pts + self.rng.normal(0, 0.02, pts.shape) * [0.3, 0.3, 1.0] + (p - s["pos"][1 + k])   # placed with the estimate
+            self.grid.insert_points(pts)
+            yaw = np.arctan2(s["R"][5 + k][1, 0], s["R"][5 + k][0, 0])
+            pose = np.r_[s["pos"][5 + k, :2], yaw]
+            ranges = cc.lidar_scan(pose, self.boxes2, 811, np.deg2rad(270.0), 0.05, 25.0)
+            ranges = np.where(ranges < 25.0, ranges + self.rng.normal(0, 0.01, 811), ranges)
+            self.grid.insert_lidar(est.ugv[k] if est is not None else pose, ranges, np.deg2rad(270.0), 25.0, self.lidar_h)
+        self.grid.update(self.sh.robot_radius, self.sh.cable_margin, self.sh.body_radius)
+
+    def update(self, dt):
+        if self.done or self.stuck:
+            return
+        if self.since >= self.replan:
+            self.sense()
+            t0 = time.perf_counter()
+            path, _ = self.cc.TeamPlanner3(self.grid, self.sh).plan4(np.r_[self.p, self.scale], np.r_[goal, 1.0])
+            self.scales_used.update(round(float(q[3]), 2) for q in path)
+            self.t_plan += time.perf_counter() - t0
+            self.plans += 1
+            if not path:
+                self.stuck = True
+                print(f"[plan3d] no path from {np.round(self.p, 2)}", flush=True)
+                s_ = rt.state
+                print("[plan3d] debug: platform", np.round(s_["pos"][0], 3), "ugv", np.round(s_["pos"][5:9, :2], 2).tolist(), "drones", np.round(s_["pos"][1:5], 2).tolist(),
+                      "h_robot", [round(self.grid.height(self.p[:2] + self.sh.ugv_offset[k], 1), 2) for k in range(4)],
+                      "h_body", round(self.grid.height(self.p[:2], 3), 2), "valid", self.cc.TeamPlanner3(self.grid, self.sh).valid(self.p),
+                      "goal valid", self.cc.TeamPlanner3(self.grid, self.sh).valid(goal), "T", np.round(rt.last["T"], 1), flush=True)
+                np.save(os.path.join(ROOT, "results", "plan3d_stuck_map.npy"), self.grid.map())
+                return
+            self.path4 = [np.array(q) for q in path]
+            self.path, self.seg, self.since = [q[:3] for q in self.path4], 1, 0.0
+        # slow down into and out of the corners of the plan (it is a polyline), so they are not velocity steps.
+        # A re-plan that continues in the same direction is not a corner.
+        def turn(u, w):
+            nu, nw = np.linalg.norm(u), np.linalg.norm(w)
+            return nu < 1e-9 or nw < 1e-9 or u @ w / (nu * nw) < 0.985
+        v = self.speed
+        if self.seg < len(self.path):
+            a, b = self.path[self.seg - 1], self.path[self.seg]
+            c_in = turn(self.dir, b - a) if self.seg == 1 else turn(a - self.path[self.seg - 2], b - a)
+            c_out = self.seg == len(self.path) - 1 or turn(b - a, self.path[self.seg + 1] - b)
+            near = min(np.linalg.norm(self.p - a) if c_in else 1e9, np.linalg.norm(b - self.p) if c_out else 1e9)
+            v = self.speed * min(1.0, 0.25 + near / 0.25)
+            self.dir = b - a
+        left = v * dt
+        while left > 0 and self.seg < len(self.path):
+            d = self.path[self.seg] - self.p
+            n = np.linalg.norm(d)
+            ds = self.path4[self.seg][3] - self.scale
+            if n < 1e-9:                                 # reconfigure in place: only the ring (and the cable lengths) change
+                step = self.ring_rate * dt
+                if abs(ds) <= step:
+                    self.scale, self.seg = self.path4[self.seg][3], self.seg + 1
+                else:
+                    self.scale += np.sign(ds) * step
+                left = 0.0
+            elif n <= left:
+                self.p, self.scale, left, self.seg = self.path[self.seg].copy(), self.path4[self.seg][3], left - n, self.seg + 1
+            else:
+                self.p, self.scale, left = self.p + d / n * left, self.scale + ds * left / n, 0.0
+        self.since += v * dt
+        self.done = np.linalg.norm(self.p - goal) < 1e-9 and self.seg >= len(self.path)
+        cfg["layout"]["ugv_radius"] = self.R0 * self.scale       # the formation generator reads the layout every cycle
+        self.ring_min = min(self.ring_min, self.R0 * self.scale)
+        self.len_min, self.len_max = np.minimum(self.len_min, rt.cables.L), np.maximum(self.len_max, rt.cables.L)
+        rt.set_platform_target(self.p)
+
+
+tstat = [0, 0, 1e9, 0.0]
+nav = Navigator() if args.scenario in ("plan3d", "course") else None
+
+
 def step():
     """Reference generator (runs every physics step) and 30 fps recorder."""
+    if phase["name"] == "TRACK":                         # cable tension statistics over every physics step of the task
+        tstat[0] += 1
+        tstat[1] += rt.last["T"].min() <= 0.0
+        tstat[2] = min(tstat[2], rt.last["T"].min())
+        tstat[3] = max(tstat[3], rt.last["T"].max())
     if phase["name"] == "HOLD" and rt.sim_time > T_HOLD:
         phase["name"] = "APPROACH"
         rt.max_lin_speed = 0.45
@@ -203,6 +365,14 @@ def step():
         phase["name"] = "TRACK"
         rt.max_lin_speed = 5.0                           # the trajectory itself is the reference now
         events.append((rt.sim_time, 0, "TRACK"))
+    elif phase["name"] == "TRACK" and nav is not None:
+        nav.update(dt_ref)
+        if nav.done or nav.stuck:
+            phase["name"], phase["t0"] = "DONE", rt.sim_time
+            events.append((rt.sim_time, 0, "DONE"))
+            print(f"[plan3d] {'goal reached' if nav.done else 'stopped'}: {nav.plans} plans, {1e3 * nav.t_plan / max(nav.plans, 1):.1f} ms each", flush=True)
+            print(f"[plan3d] ring radius of the ground robots {nav.R0:.2f} -> {nav.ring_min:.2f} m at its smallest; cable lengths "
+                  f"drone {nav.len_min[:4].min():.2f}..{nav.len_max[:4].max():.2f} m, ground {nav.len_min[4:].min():.2f}..{nav.len_max[4:].max():.2f} m", flush=True)
     elif phase["name"] == "TRACK":
         i = phase["i"]
         if i < len(traj):
@@ -267,13 +437,15 @@ m = (t_a >= t_tr) & (t_a <= t_dn)
 err = tele_a[m, 17] * 1000
 print(f"[traj] tracking error: mean {err.mean():.2f} mm, rms {np.sqrt((err**2).mean()):.2f} mm, max {err.max():.2f} mm "
       f"over {t_dn - t_tr:.1f} s", flush=True)
+print(f"[traj] cable tensions while tracking: {tstat[2]:.2f} .. {tstat[3]:.2f} N; a cable slack {100 * tstat[1] / max(tstat[0], 1):.2f}% of the time", flush=True)
 if args.scenario == "paint":
     obstacles = [("wing", *b) for b in aircraft.wing_boxes()]
-if args.scenario in ("plan", "paint"):                  # what actually happened: clearances from the recorded motion
+if args.scenario in ("plan", "plan3d", "course", "paint"):   # what actually happened: clearances from the recorded motion
     F, C = np.array(frames), np.array(cables).reshape(len(frames), 2, 8, 3)
     iu = [prim_paths.index(f"/World/UGV_{k}/chassis") for k in range(4)]
     ip = prim_paths.index("/World/Platform/base")
-    d_robot = d_cable = d_plat = 1e9
+    d_robot = d_cable = d_plat = d_drone = 1e9
+    idr = [prim_paths.index(f"/World/Drone_{k}") for k in range(4)]
     for _, c, sz in obstacles:
         lo, hi = np.array(c) - np.array(sz) / 2, np.array(c) + np.array(sz) / 2
 
@@ -282,11 +454,14 @@ if args.scenario in ("plan", "paint"):                  # what actually happened
 
         d_robot = min(d_robot, dist(F[:, iu, :3] * [1, 1, 0] + [0, 0, lo[2] + 0.01]).min())
         d_plat = min(d_plat, dist(F[:, ip, :3] - [0, 0, 0.67 if args.scenario == "paint" else 0.45]).min())
+        d_drone = min(d_drone, dist(F[:, idr, :3]).min())
         for sfrac in np.linspace(0, 1, 60):
             d_cable = min(d_cable, dist(C[:, 0] + sfrac * (C[:, 1] - C[:, 0])).min())
     moved = np.abs(F[-1, iu, 2] - F[0, iu, 2]).max()
     print(f"[plan] recorded clearance to the obstacles: ground-robot centres {d_robot:.2f} m, cables {d_cable:.2f} m, "
           f"tool {'tip' if args.scenario == 'paint' else 'centre'} {d_plat:.2f} m; robot height change {moved * 1000:.1f} mm", flush=True)
+    print(f"[plan] drones {d_drone:.2f} m from the obstacles; "
+          + ("no collision: every clearance is positive" if min(d_robot - 0.33, d_cable, d_plat, d_drone - 0.25) > 0 else "CONTACT or near-contact"), flush=True)
     extra["clearance"] = np.array([d_robot, d_cable, d_plat])
 F_ = np.array(frames)
 k0, k1 = np.searchsorted(t_a, [t_tr, t_dn])
@@ -297,7 +472,7 @@ tr_rob = [travel(prim_paths.index(n)) for n in [f"/World/UGV_{k}/chassis" for k 
 print(f"[traj] platform travelled {tr_plat:.1f} m; robots travelled {np.mean(tr_rob):.1f} m on average "
       f"({100 * np.mean(tr_rob) / max(tr_plat, 1e-9):.0f}% of the platform path)", flush=True)
 os.makedirs(os.path.join(ROOT, "recordings"), exist_ok=True)
-out = os.path.join(ROOT, "recordings", f"{args.scenario}.npz")
+out = os.path.join(ROOT, "recordings", f"{args.scenario}{'_core' if args.core else '_core_truth' if args.core_truth else ''}.npz")
 np.savez_compressed(out, frames=np.array(frames), cables=np.array(cables), rotors=np.array(rotors), tele=tele_a, t=t_a,
                     prim_paths=np.array(prim_paths), targets=np.zeros((0, 4)), ref=np.array(ref), traj=traj[:: max(1, int(round(1 / args.fps / dt_ref)))],
                     events=json.dumps(events), meta=json.dumps(dict(pattern="column", fps=args.fps, build_center=cfg["task"]["build_center"],

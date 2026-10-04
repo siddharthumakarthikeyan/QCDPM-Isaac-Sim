@@ -20,6 +20,8 @@ ap.add_argument("--build-center", type=float, nargs=2, default=None)
 ap.add_argument("--fps", type=float, default=30.0)
 ap.add_argument("--max-blocks", type=int, default=None)
 ap.add_argument("--hold-fraction", type=float, default=0.0, help="hold-region rule for the robots (0 = formation centred on the platform)")
+ap.add_argument("--core", action="store_true", help="C++ core in the loop: simulated sensors -> estimators -> controllers")
+ap.add_argument("--core-truth", action="store_true", help="C++ controllers on the true state")
 args, _ = ap.parse_known_args()
 
 from isaacsim import SimulationApp  # noqa: E402
@@ -41,6 +43,8 @@ from cdpr_sim.scene import build_scene  # noqa: E402
 
 cfg = yaml.safe_load(open(os.path.join(ROOT, "config", "cdpr.yaml")))
 cfg["task"]["pattern"] = args.pattern
+if args.core or args.core_truth:
+    cfg.setdefault("core", {}).update(enabled=True, use_truth=args.core_truth)
 # Block handling keeps the formation centred on the platform unless --hold-fraction is given (docs/RESEARCH_NOTES.md
 # sec. 10-11: the hold rule needs the acceleration-limited formation centre and lifted casters to work with a block).
 cfg["layout"]["hold_fraction"] = args.hold_fraction

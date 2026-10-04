@@ -1,0 +1,395 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=25mm]{geometry}
+\usepackage{amsmath,amssymb,bm,booktabs,graphicx,hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\SO}{\mathrm{SO}(3)}
+\newcommand{\hatm}[1]{[#1]_\times}
+\newcommand{\T}{^{\!\top}}
+\newcommand{\e}{\bm{e}}
+\title{Model, estimation and control of the air--ground mobile cable-driven parallel robot}
+\author{Derivations for the C++ core (\texttt{core/})}
+\date{}
+\begin{document}
+\maketitle
+
+\noindent This document derives the model that \texttt{core/} implements, from the single unit (one cable, one
+winch, one quadrotor, one ground robot) to the coupled machine, and then the estimators and controllers built on
+it. Each section names the function that implements it. Numbers quoted in Section~\ref{sec:results} come from
+\texttt{tests/core\_test.py} and \texttt{tests/isaac\_physics\_test.py}.
+
+\tableofcontents
+
+\section{Frames and notation}
+World frame $\mathcal{W}$: $z$ up, ground at $z=0$, $\e_3=(0,0,1)\T$. Every rigid body carries a frame at its
+centre of mass; $\bm{R}\in\SO$ maps body to world. $\bm{\Omega}$ is the angular velocity in the body frame, so
+$\dot{\bm{R}}=\bm{R}\hatm{\bm{\Omega}}$, with $\hatm{\bm a}\bm b=\bm a\times\bm b$. Indices: cables
+$i=1..8$; cables $1..4$ go from the platform's top corners to the quadrotors, $5..8$ from the bottom corners to the
+ground robots.
+
+\begin{center}\resizebox{\ifdim\width>\textwidth\textwidth\else\width\fi}{!}{\begin{tabular}{ll}
+\toprule
+$\bm p,\bm v,\bm R,\bm\Omega$ & platform position, velocity, attitude, body rate \\
+$m,\bm J$ & platform mass and inertia (3 kg, cube of side 0.30 m) \\
+$\bm b_i$ & attachment point of cable $i$ in the platform frame (cube corners) \\
+$\bm a_i,\dot{\bm a}_i$ & anchor (fairlead) position and velocity of cable $i$ \\
+$d_i,\bm u_i$ & chord length and unit vector from attachment point to anchor \\
+$L_i,T_i$ & unstretched cable length, cable tension \\
+$EA,c_{EA},\rho$ & cable axial stiffness, damping, linear density \\
+\bottomrule
+\end{tabular}}\end{center}
+
+\section{Unit models}
+\subsection{Cable}\label{sec:cable}
+\paragraph{Kinematics} (\texttt{cable\_geometry}, \texttt{cable\_rates}). With $\bm r_i=\bm R\bm b_i$,
+\begin{equation}
+ \bm d_i=\bm a_i-\bm p-\bm r_i,\qquad d_i=\|\bm d_i\|,\qquad \bm u_i=\bm d_i/d_i,\qquad
+ \dot d_i=\bm u_i\T\!\left(\dot{\bm a}_i-\bm v-\bm\omega\times\bm r_i\right),\quad \bm\omega=\bm R\bm\Omega .
+ \label{eq:kin}
+\end{equation}
+\paragraph{Elasticity} (\texttt{cable\_tension}). The cable is a tension-only Kelvin--Voigt element whose
+stiffness and damping scale with $1/L_i$:
+\begin{equation}
+ T_i=\begin{cases}\max\!\left(0,\ \dfrac{EA}{L_i}(d_i-L_i)+\dfrac{c_{EA}}{L_i}(\dot d_i-\dot L_i)\right) & d_i>L_i\\[2mm]
+ 0 & d_i\le L_i \end{cases}
+ \label{eq:kv}
+\end{equation}
+Statically $d_i=L_i(1+T_i/EA)$, which is how a winch encoder ($L_i$) and a load cell ($T_i$) together measure the
+chord (\texttt{chord\_length}).
+\paragraph{Sag.} A cable of weight per length $\rho g$ at elevation $\beta_i$ ($\sin\beta_i=u_{i,z}$) carries a
+normal load $w_n=\rho g\cos\beta_i$. For small sag the profile is a parabola and the chord is shorter than the
+stretched length $s_i=L_i(1+T_i/EA)$ by
+\begin{equation} d_i=s_i\left(1-\frac{(w_n s_i)^2}{24\,T_i^2}\right). \end{equation}
+For the 2~mm rope ($\rho=2.6$ g/m) at 5~m and 15~N this is 0.04~mm, so the simulation uses straight cables with
+half of each cable's weight lumped at its ends; the correction is available in the observer
+(\texttt{observer.sag}).
+
+\subsection{Winch}\label{sec:winch}
+Drum of radius $r_d$, reflected inertia $J_w$, viscous and Coulomb friction, in cable coordinates
+($m_w=J_w/r_d^2=5$ kg) (\texttt{winch\_step}):
+\begin{equation}
+ m_w\ddot L_i=F_i+T_i-c_v\dot L_i-F_c\,\mathrm{sgn}(\dot L_i),\qquad |F_i|\le F_{\max}\Bigl(1-\tfrac{|\dot L_i|}{v_{\max}}\Bigr)\ \text{when driving.}
+\end{equation}
+The motor force is one of two servos, both with the tension feed-forward $T^{\mathrm{ff}}_i$:
+\begin{align}
+ \text{length mode:}\quad F_i&=-T^{\mathrm{ff}}_i+m_w\!\left[\omega_w^2(L^c_i-L_i)+2\zeta_w\omega_w(\dot L^c_i-\dot L_i)\right], \label{eq:lenmode}\\
+ \text{tension mode:}\quad F_i&=-T^{\mathrm{ff}}_i+c_w(\dot L^c_i-\dot L_i),\qquad c_w=2\zeta_w\omega_w m_w=450\ \mathrm{N\,s/m}. \label{eq:tenmode}
+\end{align}
+In tension mode at steady speed $T_i=T^{\mathrm{ff}}_i+c_w(\dot L_i-\dot L^c_i)+c_v\dot L_i+F_c\,\mathrm{sgn}\dot L_i$:
+the winch is a force source in series with a damper referenced to the commanded rate.
+
+\subsection{Quadrotor}\label{sec:quad}
+Mass $m_q$, inertia $\bm J_q$, four rotors with thrust $f_j=k_f\varpi_j^2$, first-order speed dynamics
+$\dot\varpi_j=(\varpi^c_j-\varpi_j)/\tau_m$, and mixer (\texttt{quad\_mixer})
+\begin{equation}
+\begin{pmatrix}f\\ \bm M\end{pmatrix}=\begin{pmatrix}1&1&1&1\\ y_1&y_2&y_3&y_4\\ -x_1&-x_2&-x_3&-x_4\\ -\kappa s_1&-\kappa s_2&-\kappa s_3&-\kappa s_4\end{pmatrix}\!\begin{pmatrix}f_1\\f_2\\f_3\\f_4\end{pmatrix}.
+\end{equation}
+The cable pulls the fairlead (offset $\bm r_a$ from the centre of mass) with $-T\bm u$:
+\begin{align}
+ m_q\dot{\bm v}_q&=f\bm R_q\e_3-m_qg\e_3-T\bm u-\tfrac12\rho gL\,\e_3+\bm F_{\mathrm{drag}}, \label{eq:quadtrans}\\
+ \bm J_q\dot{\bm\Omega}_q&=\bm M-\bm\Omega_q\times\bm J_q\bm\Omega_q+\bm r_a\times\bm R_q\T(-T\bm u), \label{eq:quadrot}
+\end{align}
+with $\bm F_{\mathrm{drag}}=-\bm R_q\,\mathrm{diag}(k_d,k_d,0)\bm R_q\T\bm v_q-c_d\|\bm v_q\|\bm v_q$ (\texttt{quad\_wrench}).
+
+\subsection{Ground robot}\label{sec:ugv}
+Differential drive, pose $(x,y,\theta)$, forward speed $v$, yaw rate $\omega$, wheel radius $r$, track $b$.
+Rolling without slipping gives $\dot x=v\cos\theta$, $\dot y=v\sin\theta$, $\dot\theta=\omega$ and wheel speeds
+$\varpi_{l,r}=(v\mp\tfrac b2\omega)/r$. The wheels are velocity servos, $\tau_{l,r}=k_w(\varpi^c_{l,r}-\varpi_{l,r})$,
+$|\tau|\le\tau_{\max}$. The fairlead sits on the axle axis at height $h$, so the cable force
+$\bm F=-T\bm u$ has no yaw moment:
+\begin{equation}
+ \Bigl(m_g+\tfrac{2J_{wh}}{r^2}\Bigr)\dot v=\frac{\tau_l+\tau_r}{r}+\bm F\!\cdot\!\bm h,\qquad
+ \Bigl(I_z+\tfrac{J_{wh}b^2}{2r^2}\Bigr)\dot\omega=\frac{(\tau_r-\tau_l)\,b}{2r},
+\end{equation}
+with $\bm h=(\cos\theta,\sin\theta,0)\T$. The lateral component $\bm F\cdot\bm h_\perp$ and the drive force are
+carried by tyre friction; the model reports the friction demand over $\mu N$, $N=m_gg+F_z$ (\texttt{Simulator::traction\_use}).
+
+\subsection{Platform}\label{sec:platform}
+Newton--Euler about the centre of mass with the external wrench $(\bm f_e,\bm\tau_e)$ of the tool and payload:
+\begin{align}
+ m\dot{\bm v}&=\sum_i T_i\bm u_i-mg\e_3+\bm f_e, &
+ \bm J\dot{\bm\Omega}&=\bm R\T\Bigl(\sum_i\bm r_i\times T_i\bm u_i+\bm\tau_e\Bigr)-\bm\Omega\times\bm J\bm\Omega .
+ \label{eq:plat}
+\end{align}
+
+\section{The coupled machine}
+\subsection{Structure matrix}
+Collecting \eqref{eq:plat}, the cables apply the wrench $\bm W\bm t$ with
+\begin{equation}
+ \bm W(\bm p,\bm R,\bm a)=\begin{pmatrix}\bm u_1&\cdots&\bm u_8\\ \bm r_1\times\bm u_1&\cdots&\bm r_8\times\bm u_8\end{pmatrix}\in\R^{6\times 8},\qquad \bm t\ge 0 .
+\end{equation}
+By \eqref{eq:kin}, $\dot{\bm d}=-\bm W\T\bm\xi+\bm U\T\dot{\bm a}$ with the platform twist $\bm\xi=(\bm v,\bm\omega)$:
+$-\bm W\T$ is the inverse-kinematics Jacobian. Eight cables on six degrees of freedom leave a two-dimensional
+null space for internal tension.
+
+\subsection{State and dimension}
+The plant state (\texttt{Simulator}) is
+\[
+ \underbrace{(\bm p,\bm v,\bm R,\bm\Omega)}_{12}\ \oplus\ \underbrace{4\times(\bm p_q,\bm v_q,\bm R_q,\bm\Omega_q,\bm\varpi)}_{4\times 16}\ \oplus\ \underbrace{4\times(x,y,\theta,v,\omega)}_{4\times 5}\ \oplus\ \underbrace{(\bm L,\dot{\bm L})}_{16}
+\]
+i.e.\ 112 states, coupled only through the eight cable tensions \eqref{eq:kv}: each tension depends on the
+platform pose, one robot's pose and one winch. The inputs are 16 rotor speed commands, 8 wheel speed commands and
+8 winch commands $(L^c,\dot L^c,T^{\mathrm{ff}},\text{mode})$. Integration is semi-implicit Euler at 1~kHz, the
+same step as PhysX.
+
+\subsection{Tension bounds from the robots' limits}\label{sec:caps}
+Each robot holds exactly one cable, so its limits are bounds on that one tension.
+
+\paragraph{Quadrotor} (\texttt{drone\_tension\_cap}). In equilibrium \eqref{eq:quadtrans} needs thrust
+$\bm f=m_qg\e_3+T\bm u$. Tilt $\le\theta_{\max}$ and $\|\bm f\|\le f_{\max}$ give
+\begin{equation}
+ T\le\frac{m_qg\tan\theta_{\max}}{u_{xy}-u_z\tan\theta_{\max}}\ \ (\text{if }u_{xy}>u_z\tan\theta_{\max}),\qquad
+ T\le-m_qg\,u_z+\sqrt{(m_qg\,u_z)^2-(m_qg)^2+f_{\max}^2},
+ \label{eq:capdrone}
+\end{equation}
+with $u_{xy}=\|(u_x,u_y)\|$.
+
+\paragraph{Ground robot} (\texttt{ugv\_tension\_cap}). The cable pulls with $T u_{xy}$ horizontally and
+$-Tu_z$ vertically. $\bm u$ points from the platform to the anchor, so for a ground robot $u_z<0$ and the cable
+lifts it: the normal force is $N=m_gg+Tu_z$. Sliding: $Tu_{xy}\le\mu(m_gg+Tu_z)$. Tipping about the edge of the support
+polygon at distance $a$ (inradius of the wheel--caster rhombus, 0.148 m) with the fairlead at height $h$:
+$Tu_{xy}h\le(m_gg+Tu_z)a$. Hence
+\begin{equation}
+ T\le\frac{\mu m_gg}{u_{xy}-\mu u_z},\qquad T\le\frac{m_gg\,a}{u_{xy}h-u_za}.
+ \label{eq:capugv}
+\end{equation}
+For the default layout the tipping bound is 63~N at 80\% margin, just above the 60~N winch limit; the sliding
+bound is about 130~N.
+
+\subsection{Tension distribution}\label{sec:td}
+Given the wrench $\bm w$ the cables must supply, the tensions solve (\texttt{tension\_distribution})
+\begin{equation}
+ \min_{\bm t}\ \lambda\|\bm t-t_{\mathrm{ref}}\bm 1\|^2+\lambda\kappa\|\bm t-\bm t^-\|^2+\|\bm W\bm t-\bm w\|^2
+ \quad\text{s.t.}\quad \bm t_{\min}\le\bm t\le\bm t_{\max}(\bm u),
+ \label{eq:qp}
+\end{equation}
+where $\bm t_{\max}$ is the smaller of the winch limit and \eqref{eq:capdrone}, \eqref{eq:capugv}. It is a strictly
+convex box-constrained QP in eight variables, solved exactly by a primal active-set method
+(\texttt{solve\_box\_qp}): minimise over the free set, step to the first bound hit, release the bound whose
+multiplier has the wrong sign, stop when the projected gradient vanishes. Without active bounds and $\kappa=0$ the
+solution is the damped pseudo-inverse $\bm t=\bm t_{\mathrm{ref}}+\bm W\T(\bm W\bm W\T+\lambda\bm I)^{-1}(\bm w-\bm W\bm t_{\mathrm{ref}})$.
+The damping follows the conditioning of $\bm W$ (\texttt{adaptive\_lambda}):
+\begin{equation}
+ \lambda=\lambda_{\min}+\bigl(1-(\sigma_{\min}/\sigma_\epsilon)^2\bigr)(\lambda_{\max}-\lambda_{\min})\ \ \text{for }\sigma_{\min}(\bm W)<\sigma_\epsilon,\qquad\lambda=\lambda_{\min}\ \text{otherwise,}
+\end{equation}
+so the wrench is met to $10^{-6}$ in normal layouts ($\sigma_{\min}=0.27$ for the crossed layout) and is not
+forced through vanishing moment arms near a singular one.
+
+\section{Sensors and estimation}\label{sec:est}
+\begin{center}\resizebox{\ifdim\width>\textwidth\textwidth\else\width\fi}{!}{\begin{tabular}{llll}
+\toprule
+Sensor & Measures & Rate & Noise (1$\sigma$) \\
+\midrule
+Drone IMU & specific force, body rate & 500 Hz & $6.9\!\times\!10^{-4}$ m/s$^2$/$\sqrt{\text{Hz}}$, $4.9\!\times\!10^{-5}$ rad/s/$\sqrt{\text{Hz}}$, biases \\
+Drone fix & position, heading & 50 Hz & 5 mm, 0.5$^\circ$ \\
+Wheel encoders & wheel rates & 100 Hz & 0.02 rad/s \\
+Ground-robot fix (lidar) & $x,y,\theta$ & 15 Hz & 5 mm, 0.3$^\circ$ \\
+Winch encoder & $L_i,\dot L_i$ & 1 kHz & 0.03 mm, 1 mm/s \\
+Winch load cell & $T_i$ & 1 kHz & 0.1 N \\
+Robot camera + AprilTag & platform pose in the camera frame & 30 Hz & 3 mm, 0.3$^\circ$ \\
+\bottomrule
+\end{tabular}}\end{center}
+The measurements are generated from the true simulator state by \texttt{SensorSuite} (rates, white noise, IMU
+bias and bias random walk). The camera images and lidar scans themselves are not processed in this loop.
+
+\subsection{Quadrotor: error-state Kalman filter}
+Nominal state $(\bm p_q,\bm v_q,\bm R_q,\bm b_g,\bm b_a)$, propagated with the IMU sample $(\bm a_m,\bm\omega_m)$:
+$\dot{\bm p}_q=\bm v_q$, $\dot{\bm v}_q=\bm R_q(\bm a_m-\bm b_a)-g\e_3$, $\dot{\bm R}_q=\bm R_q\hatm{\bm\omega_m-\bm b_g}$. The error
+$\delta\bm x=(\delta\bm p,\delta\bm v,\delta\bm\theta,\delta\bm b_g,\delta\bm b_a)$, with $\bm R_q\leftarrow\bm R_q\exp\hatm{\delta\bm\theta}$, obeys
+\begin{equation}
+ \delta\dot{\bm p}=\delta\bm v,\quad \delta\dot{\bm v}=-\bm R_q\hatm{\bm a_m-\bm b_a}\delta\bm\theta-\bm R_q\delta\bm b_a,\quad
+ \delta\dot{\bm\theta}=-\hatm{\bm\omega_m-\bm b_g}\delta\bm\theta-\delta\bm b_g .
+\end{equation}
+The position fix updates with $\bm H=[\bm I\ \bm 0\ \bm 0\ \bm 0\ \bm 0]$; the heading
+$\psi=\mathrm{atan2}(R_{21},R_{11})$ with $\partial\psi/\partial\delta\bm\theta=(R_{11}\bm A_2-R_{21}\bm A_1)/(R_{11}^2+R_{21}^2)$,
+$\bm A=-\bm R_q\hatm{\e_1}$ (\texttt{DroneEskf}). The fairlead is $\bm a=\bm p_q+\bm R_q\bm r_a$.
+
+\subsection{Ground robot: odometry + pose fix}
+$(x,y,\theta)$ is propagated with the encoder odometry $v=\tfrac r2(\varpi_l+\varpi_r)$, $\omega=\tfrac rb(\varpi_r-\varpi_l)$ and
+corrected by the pose fix (\texttt{UgvEkf}); the anchor is $(x,y,h)$.
+
+\subsection{Platform: tension-driven observer}\label{sec:obs}
+The platform carries no inertial sensor. Its observer (\texttt{PlatformObserver}) uses the model
+\eqref{eq:plat} itself as the predictor, driven by the \emph{measured} tensions, and adds the unknown external
+wrench as a random-walk state: nominal state $(\bm p,\bm v,\bm R,\bm\Omega,\bm d_f,\bm d_\tau)$,
+\begin{align}
+ \dot{\bm v}&=\tfrac1m\Bigl(\sum_iT_i\bm u_i+\bm f_k+\bm d_f\Bigr)-g\e_3, &
+ \bm J\dot{\bm\Omega}&=\sum_i\bm b_i\times\bm R\T T_i\bm u_i+\bm R\T\bm\tau_k+\bm d_\tau-\bm\Omega\times\bm J\bm\Omega,
+\end{align}
+with $(\bm f_k,\bm\tau_k)$ the known tool wrench (wrist load cell). Because $T_i$ is measured, the stiff elastic
+law \eqref{eq:kv} does not appear in the predictor; only the direction $\bm u_i$ depends on the state:
+$\partial(T_i\bm u_i)/\partial\bm x_{a,i}=-\tfrac{T_i}{d_i}\bm P_i$, $\bm P_i=\bm I-\bm u_i\bm u_i\T$, the geometric stiffness. With
+$\delta\bm x_{a,i}=\delta\bm p-\bm R\hatm{\bm b_i}\delta\bm\theta$ the error dynamics are
+\begin{align}
+ m\,\delta\dot{\bm v}&=-\sum_i\tfrac{T_i}{d_i}\bm P_i\,\delta\bm p+\sum_i\tfrac{T_i}{d_i}\bm P_i\bm R\hatm{\bm b_i}\,\delta\bm\theta+\delta\bm d_f,\\
+ \bm J\,\delta\dot{\bm\Omega}&=-\sum_i\hatm{\bm b_i}\bm R\T\tfrac{T_i}{d_i}\bm P_i\,\delta\bm p
+ +\sum_i\Bigl(T_i\hatm{\bm b_i}\hatm{\bm R\T\bm u_i}+\hatm{\bm b_i}\bm R\T\tfrac{T_i}{d_i}\bm P_i\bm R\hatm{\bm b_i}\Bigr)\delta\bm\theta\notag\\
+ &\quad+\bigl(\hatm{\bm J\bm\Omega}-\hatm{\bm\Omega}\bm J\bigr)\delta\bm\Omega+\delta\bm d_\tau,
+\end{align}
+plus $\delta\dot{\bm p}=\delta\bm v$, $\delta\dot{\bm\theta}=-\hatm{\bm\Omega}\delta\bm\theta+\delta\bm\Omega$.
+
+\paragraph{Cable-length update (tension-based localisation).} Each taut cable ($T_i>1$ N) gives the scalar
+measurement $z_i=L_i(1+T_i/EA)=\|\bm a_i-\bm p-\bm R\bm b_i\|$ with
+\begin{equation}
+ \bm H_i=\bigl[-\bm u_i\T\ \ \bm 0\ \ \bm u_i\T\bm R\hatm{\bm b_i}\ \ \bm 0\ \ \bm 0\ \ \bm 0\bigr],
+\end{equation}
+i.e.\ row $i$ of $-\bm W\T$ in body coordinates: the eight lengths observe the full pose whenever $\bm W$ has rank
+6. The anchors come from the robots' own filters, so the measurement variance includes the anchor error.
+\paragraph{Tag update.} A camera on robot $k$ measures the platform pose in its own frame,
+$(\bm p_{\mathrm{rel}},\bm R_{\mathrm{rel}})$; with the robot's estimated pose
+$\bm p_{\mathrm{tag}}=\hat{\bm p}_k+\hat{\bm R}_k\bm p_{\mathrm{rel}}$, $\bm R_{\mathrm{tag}}=\hat{\bm R}_k\bm R_{\mathrm{rel}}$, and the residuals are
+$\bm p_{\mathrm{tag}}-\bm p$ and $\log(\bm R\T\bm R_{\mathrm{tag}})^\vee$. An attitude error $\epsilon$ of a robot at range $\ell$
+moves the tag position by $\ell\epsilon$ (7 mm for 0.1$^\circ$ at 4 m), so the tags are weighted well below the
+cable lengths; they guard against a wrong mode rather than set the precision.
+\paragraph{Why not length control alone.} A length-controlled cable turns an anchor position error $\delta a$
+along the cable into a tension error
+\begin{equation} \delta T=\frac{EA}{L}\,\delta a\qquad(34\ \text{N/mm at }L=2.9\ \text{m}), \end{equation}
+so anchors known to a few millimetres cannot be combined with eight stiff length servos. With four tension-mode
+cables the four length-mode cables only fix four of the six platform degrees of freedom, an anchor error moves
+the platform instead of loading the cables, and the tensions stay near their set-points. This is the estimation
+side of the hybrid scheme of Section~\ref{sec:hybrid}.
+
+\section{Control}
+\subsection{Platform tracking on SE(3)}
+Reference $(\bm p_d,\bm v_d,\bm a_d,\bm R_d,\bm\Omega_d)$. Errors
+\begin{equation}
+ \e_p=\bm p_d-\bm p,\quad \e_v=\bm v_d-\bm v,\quad \e_R=\tfrac12(\bm R_d\T\bm R-\bm R\T\bm R_d)^\vee,\quad \e_\Omega=\bm\Omega-\bm R\T\bm R_d\bm\Omega_d .
+\end{equation}
+The wrench the cables must supply (\texttt{PlatformController::step}) is
+\begin{align}
+ \bm f&=m\Bigl(\bm a_d+k_p\e_p+k_d\e_v+k_i\!\!\int\!\e_p+g\e_3\Bigr)-\bm f_k-\hat{\bm d}_f,\\
+ \bm\tau&=\bm R\Bigl[\bm J\Bigl(-k_p\e_R-k_d\e_\Omega-k_i\!\!\int\!\e_R-\bm\Omega\times\bm R\T\bm R_d\bm\Omega_d\Bigr)+\bm\Omega\times\bm J\bm\Omega\Bigr]-\bm\tau_k-\bm R\hat{\bm d}_\tau,
+\end{align}
+with $k_p=\omega_n^2$, $k_d=2\zeta\omega_n$, $k_i=0.5\,\omega_n^3$ ($\omega_n=7$ rad/s), bounded integrals, and the
+observer's disturbance estimate fed forward. $\bm w=(\bm f,\bm\tau)$ goes through \eqref{eq:qp}.
+
+\subsection{Hybrid winch commands}\label{sec:hybrid}
+Drone winches run in tension mode \eqref{eq:tenmode} and ground winches in length mode \eqref{eq:lenmode}; all
+get $T^{\mathrm{ff}}=\bm t$ from \eqref{eq:qp}.
+\paragraph{Length-mode cables} servo to the inverse kinematics of a corrected pose,
+$L^c_i=d_i(\bm p_d+k_{ik}\!\int\!\e_p,\ \bm R_d\exp\hatm{-k_{ik}\!\int\!\e_R},\ \hat{\bm a}_i)/(1+t_i/EA)$: in the
+directions these cables hold stiffly a wrench integral has almost no authority, so the steady error is removed
+kinematically.
+They also carry a slow admittance on their load cells,
+\begin{equation}
+ L^c_i\leftarrow L^c_i+\delta L_i,\qquad \delta\dot L_i=k_a\,(T_i-t_i),\quad|\delta L_i|\le\delta_{\max},
+ \label{eq:adm}
+\end{equation}
+so each is a stiff length servo above the bandwidth of \eqref{eq:adm} and follows its tension set-point below it.
+This is what makes the scheme work with \emph{estimated} anchors: measured on the model, a millimetre of
+ground-anchor error shifts a ground-cable tension by about 4 N, and \eqref{eq:adm} reduces the tension ripple from
+2.2 to 0.7 N. With the true state it is switched off.
+\paragraph{Tension-mode cables} get the rate of a commanded twist,
+\begin{equation}
+ \dot L^c_i=\bm u_i\T\bigl(\dot{\hat{\bm a}}_i-\bm v_c-\bm\omega_c\times\bm r_i\bigr),\qquad \bm v_c=\bm v_d+k_t\e_p,\quad\bm\omega_c=\bm R_d\bm\Omega_d-k_t\bm R\e_R,
+ \label{eq:twist}
+\end{equation}
+with the correction limited to 0.05 m/s.
+\paragraph{Why \eqref{eq:twist}.} Take one translational direction held by tension-mode cables with projection
+$\gamma_i$, total damping $c=\sum_i\gamma_i^2c_w$. With $\dot L^c$ equal to the reference rate only
+($k_t=0$), \eqref{eq:tenmode} and the PID give $c\,\dot e+mk_pe+mk_i\!\int\!e=0$ (the platform inertia is
+negligible against $c$), i.e.
+\begin{equation}
+ \omega=\sqrt{mk_i/c},\qquad\zeta=\frac{mk_p}{2\sqrt{mk_ic}} .
+\end{equation}
+With $m=3$ kg, $k_i=171.5$, $k_p=49$, $c\approx1800$ N\,s/m: $0.085$ Hz and $\zeta=0.076$. The linearised
+closed-loop map of the full model (Section~\ref{sec:stab}) has exactly this mode: 0.08 Hz, $\zeta=0.089$. With
+\eqref{eq:twist} the same equation becomes $c(\dot e+k_te)+mk_pe+mk_i\!\int\!e=0$, with real poles near
+$-k_t$ and $-mk_i/(ck_t+mk_p)$: the error decays at $k_t=3.5$ s$^{-1}$ and the oscillation is gone.
+
+\subsection{Quadrotor}
+Geometric tracking (Lee, Leok, McClamroch 2010) with the cable force fed forward from the load cell and the
+estimated cable direction, $\hat{\bm F}_c=-T\hat{\bm u}-\tfrac12\rho gL\e_3$ (\texttt{DroneController}):
+\begin{align}
+ \bm F&=-\bm K_p(\bm p_q-\bm p_r)-\bm K_d(\bm v_q-\bm v_r)-\bm K_i\!\!\int\!(\bm p_q-\bm p_r)+m_q(\bm a_r+g\e_3)-\hat{\bm F}_c,\\
+ f&=\bm F\!\cdot\!\bm R_q\e_3,\qquad \bm b_3=\bm F/\|\bm F\|,\quad\bm R_c=[\bm b_2\times\bm b_3,\ \bm b_2,\ \bm b_3],\quad \bm b_2=\frac{\bm b_3\times\bm b_{1c}}{\|\bm b_3\times\bm b_{1c}\|},\\
+ \bm M&=-\bm K_R\,\tfrac12(\bm R_c\T\bm R_q-\bm R_q\T\bm R_c)^\vee-\bm K_\Omega\bm\Omega_q+\bm\Omega_q\times\bm J_q\bm\Omega_q-\bm r_a\times\bm R_q\T\hat{\bm F}_c ,
+\end{align}
+with the horizontal part of $\bm F$ limited to $F_z\tan\theta_{\max}$. The last term cancels the cable moment
+about the centre of mass in \eqref{eq:quadrot}.
+
+\subsection{Ground robot}
+Desired planar velocity $\bm v^\star=\dot{\bm g}+k(\bm g-\bm x)$ towards the formation goal $\bm g$, limited to
+0.6 m/s; heading error $e_\theta$ to $\bm v^\star$ (reversing if that turns less); $v=\|\bm v^\star\|\cos e_\theta$,
+$\omega=k_\theta e_\theta$; acceleration-limited; wheel speeds $(v\mp\tfrac b2\omega)/r$ (\texttt{UgvController}).
+
+\section{Perception and planning}\label{sec:plan}
+\paragraph{Lidar and map} (\texttt{lidar\_scan}, \texttt{OccupancyGrid}). Each ground robot's 2-D lidar returns
+ranges $r_k$ at bearings $\alpha_k$. A scan taken at the robot's \emph{estimated} pose updates a log-odds grid:
+cells along the beam $\ell\leftarrow\ell-0.2$, the end cell $\ell\leftarrow\ell+0.9$, $|\ell|\le4$; a cell is
+occupied for $\ell>0.7$. A two-pass chamfer transform gives the distance field $D(\bm x)$ to the nearest occupied
+cell.
+\paragraph{Team validity} (\texttt{TeamPlanner::valid}). With the formation centred on the platform at
+$\bm c$ and ground robots at $\bm c+\bm o_k$, the position is valid iff
+\begin{equation}
+ D(\bm c)\ge r_b,\qquad D(\bm c+\bm o_k)\ge r_r,\qquad D(\bm c+s\bm o_k)\ge r_c\ \ \forall s\in(0,1),\ k=1..4,
+\end{equation}
+each radius enlarged by 8\% (chamfer error) plus one cell. The map is two-dimensional, so the team does not pass a
+cable over an obstacle, and unmapped space counts as free.
+\paragraph{Search.} A* over the grid (8-connected, octile heuristic) with lazily cached validity, then
+line-of-sight shortcutting; it is repeated as the map grows.
+
+\paragraph{Three dimensions} (\texttt{depth\_scan}, \texttt{ElevationGrid}, \texttt{TeamPlanner3}). A downward
+depth camera on each drone gives points on whatever is below; the map keeps the highest return per cell,
+$H(\bm x)$, and a lidar return raises its cell to at least the height of the scan plane. Dilating $H$ by the robot,
+cable and tool radii gives $H_r,H_c,H_b$. A platform position $\bm c=(x,y,z)$ with the formation centred on it is
+valid iff
+\begin{align}
+ &H_b(x,y)+\delta\le z-\ell_{\mathrm{tool}}, \qquad H_r\bigl((x,y)+\bm o_k\bigr)\le h_{\mathrm{step}},\\
+ &H_c\bigl(\bm q_k(s)\bigr)+\delta\le z_k(s)\quad\forall s\in[0,1],\ \text{all eight cables},
+\end{align}
+where $\bm q_k(s),z_k(s)$ run along cable $k$ from its platform corner to its fairlead (0.35 m on a ground robot,
+4.5 m on a drone) and $\delta$ is the vertical clearance. The search is A* over $(x,y,z)$ (26-connected) with the
+metric $\|\Delta xy\|+c_z|\Delta z|$, so the team lifts the payload over a low obstacle while the ground robots
+straddle it, and goes around a tall one. Cells within 0.3 m of the start are passable, so a start that new
+measurements have just made invalid can be left.
+
+\paragraph{Reconfiguration} (\texttt{TeamPlanner3::plan4}). The ground robots' ring may be scaled by
+$\sigma\in\{0.6,\dots,1\}$, so the state is $(x,y,z,\sigma)$ and the robots sit at $(x,y)+\sigma\bm o_k$. A
+$(z,\sigma)$ pair is admitted only if the tension distribution of Section~\ref{sec:td} meets the weight exactly
+with every tension above $t_{\min}+0.5$ N (tabulated once: level platform, formation centred). Moves are the 26
+spatial neighbours at constant $\sigma$ and a change of $\sigma$ in place, costing
+$c_\sigma|\Delta\sigma|$. While the plan is followed the ring radius and the height change continuously, and the
+winches follow with the cable lengths from the inverse kinematics.
+
+\section{Keeping the cables taut}\label{sec:taut}
+Three things were needed.
+\paragraph{The hold region must be wrench-feasible.} The formation holds position while the platform is inside a
+radius $R(z)$ and that radius was computed with a test that checked $\bm t_{\min}\le\bm t\le\bm t_{\max}$ but not
+$\bm W\bm t=\bm w$. With cables pinned at a bound the others cannot always balance the wrench, so the platform was
+allowed to go where a ground cable has to fall below $t_{\min}$. With the residual checked
+($\|\bm W\bm t-\bm w\|<0.05$ N), the feasible radius at $z=1.3$ m is 0.40 m, not 0.88 m.
+\paragraph{Reference governor} (\texttt{PlatformController::governed}). The commanded reference is followed by
+$\dot{\bm v}_g=\mathrm{sat}_{a_{\max}}\bigl(\bm v_d+k_g(\bm p_d-\bm p_g)-\bm v_g\bigr)/\Delta t$, $\dot{\bm p}_g=\bm v_g$ (and the
+same on $\SO$), so a velocity step in the command is not a tension impulse.
+\paragraph{Slack guard.} A length-mode cable measured below $t_g$ is reeled in at $k_g^{T}(t_g-T_i)$ on top of
+\eqref{eq:adm}.
+
+\section{Stability}\label{sec:stab}
+\subsection{Platform loop with ideal wrench}
+If the cables deliver $\bm w$ exactly and $\hat{\bm d}=\bm d$, the translational error obeys
+$\ddot{\e}_p+k_d\dot{\e}_p+k_p\e_p+k_i\!\int\!\e_p=0$, Hurwitz iff $k_dk_p>k_i$ (here $12.6\cdot49\gg171.5$). For the
+attitude, with $\Psi=\tfrac12\mathrm{tr}(\bm I-\bm R_d\T\bm R)$ and
+$V=\tfrac12\e_\Omega\T\bm J\e_\Omega+k_p\lambda_J\Psi+c_1\e_R\T\bm J\e_\Omega$, the argument of Lee et al.\ gives
+$\dot V\le-\bm z\T\bm Q\bm z$, $\bm z=(\|\e_R\|,\|\e_\Omega\|)$, $\bm Q\succ0$ for small $c_1$, on the sublevel set
+$\Psi<2$: exponential convergence from any initial attitude error below $180^\circ$.
+\subsection{What the ideal analysis leaves out}
+The wrench is produced through \eqref{eq:qp}, the winch servos \eqref{eq:lenmode}--\eqref{eq:tenmode}, elastic
+cables and robots that are themselves feedback systems, at three sample rates. The time scales are separated
+(cable axial mode 23 Hz, winch length servo 8 Hz, drone attitude about 3 Hz, platform loop 1.1 Hz, drone position
+0.4 Hz) but not by enough for a clean singular-perturbation proof, and the hybrid winch scheme adds the slow mode
+analysed in Section~\ref{sec:hybrid}.
+\subsection{Linearised closed-loop map}
+The sampled closed loop is therefore checked on the full model. Let $\Phi$ be the map of the closed-loop state
+(plant states, controller integrators) over one common control period $T_c=20$ ms (20 physics steps; all three
+controllers fire at its start). \texttt{Simulator::monodromy} computes $\bm A=\partial\Phi/\partial\bm x$ at an
+equilibrium by central differences in error-state coordinates ($\delta\bm\theta$ for rotations). The
+equilibrium is locally exponentially stable iff the spectral radius $\rho(\bm A)<1$; an eigenvalue $\mu$
+corresponds to the continuous pole $s=\ln\mu/T_c$. The ground robots are parked for this test: a
+differential-drive base cannot be asymptotically stabilised to a point by smooth feedback (Brockett), and its
+go-to-goal law has a dead band, so its position is a neutral direction by design.
+
+\section{Results}\label{sec:results}
+\input{results.tex}
+
+\end{document}

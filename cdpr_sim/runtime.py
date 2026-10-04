@@ -68,6 +68,7 @@ class CdprRuntime:
         self._cross_w = np.zeros(2)
         self.ext_wrench = np.zeros(6)       # extra world-frame wrench on the platform (disturbance experiments)
 
+        self.core = None                    # C++ estimation + control (core_bridge.CoreBridge) when core.enabled
         self.view = None
         self.art = None
         self.step_count = 0
@@ -112,6 +113,11 @@ class CdprRuntime:
         self.quads.init_hover(t[:4] * u[:4, 2])
         self._apply_formation()
         self.quads.p_ref = anchors[:4] - self.r_drone
+        if self.cfg.get("core", {}).get("enabled", False):
+            from .core_bridge import CoreBridge
+
+            self.core = CoreBridge(self)
+            self.core.reset(self, t)
         self._sub = SimulationManager.register_callback(self._on_physics_step, SimulationEvent.PHYSICS_PRE_STEP)
 
     def shutdown(self):
@@ -237,8 +243,12 @@ class CdprRuntime:
             self.tool.update(s["R"][0], dt_p)
             self.ctrl.w_ext = self.tool.w_on_base if self.tool.feedforward else np.zeros(6)
 
+        # ---- C++ core: sensors -> estimators -> platform, drone and ground-robot controllers
+        if self.core is not None:
+            self.core.step(self, T, (s["v"] - self._prev_vel) / dt, run_platform, dt * self.div["platform"])
+
         # ---- platform-level controller -> winch commands
-        if self.winch_auto and run_platform:
+        elif self.winch_auto and run_platform:
             t_des, d_ref = self.ctrl.solve(pb, s["pos"][0], R_p, s["v"][0], s["w"][0], dt_p)
             self.cables.mode[:] = "length"
             if self.hybrid:
@@ -253,13 +263,13 @@ class CdprRuntime:
 
         # ---- drones (controller at its own rate, rotor dynamics every step)
         F_on_drone = -Fc[:4] - half_w[:4, None] * E3
-        if k % self.div["drone"] == 0:
+        if self.core is None and k % self.div["drone"] == 0:
             self.quads.control(s["pos"][1:5], s["quat"][1:5], s["v"][1:5], s["w"][1:5], F_on_drone,
                                dt * self.div["drone"], R=s["R"][1:5])
         F_rot, tau_rot = self.quads.actuate(s["quat"][1:5], s["v"][1:5], dt, R=s["R"][1:5])
 
         # ---- UGVs (wheel servo itself is the PhysX joint drive)
-        if k % self.div["ugv"] == 0:
+        if self.core is None and k % self.div["ugv"] == 0:
             wheel_targets = self.ugv_cmd.step(s["pos"][5:9], s["quat"][5:9], dt * self.div["ugv"], R=s["R"][5:9])
             vt = np.zeros((4, self.art.max_dofs), np.float32)
             vt[:, self.wheel_dofs] = wheel_targets

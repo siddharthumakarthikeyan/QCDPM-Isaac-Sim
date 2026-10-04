@@ -170,7 +170,11 @@ def hold_table(cfg, fraction=None):
         W, u, _ = structure_matrix(p, np.eye(3), b, A)
         tb = np.full(8, float(w_["tension_max"]))
         tb[:4] = np.minimum(tb[:4], drone_tension_caps(u[:4], d["mass"], grav, th, f_max))
-        return tension_distribution(W, np.array([0, 0, m * grav, 0, 0, 0]), w_["tension_min"], tb, w_["tension_ref"])[1]
+        w = np.array([0, 0, m * grav, 0, 0, 0])
+        t, ok = tension_distribution(W, w, w_["tension_min"], tb, w_["tension_ref"])
+        # the bounds alone are not enough: with cables pinned at a bound the remaining ones may no longer be able to
+        # balance the wrench, and the platform then sits where a cable goes slack
+        return ok and np.linalg.norm(W @ t - w) < 0.05
 
     R = []
     for z in zs:

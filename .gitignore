@@ -17,3 +17,6 @@ results/second_pass/
 results/hybrid_pd_only/
 # working notes with unpublished results
 docs/RESEARCH_NOTES.md
+# C++ core build output (core/build.sh)
+core/build/
+cdpr_sim/cdpr_core*.so
