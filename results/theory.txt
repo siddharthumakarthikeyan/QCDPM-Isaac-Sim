@@ -1,0 +1,59 @@
+/home/siddharth/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+====================================================================================================
+CLAIM 1  straight vs crossed
+----------------------------------------------------------------------------------------------------
+Yaw moment arm of cable i at the level pose (platform centred):  m_z,i = r * rho_i * sin(phi_i) / L_i
+  phi=  0 deg  m_z top=+0.0000 m  bottom=-0.0000 m   |numeric-closed| = 0.0e+00
+  phi= 30 deg  m_z top=+0.0731 m  bottom=-0.1084 m   |numeric-closed| = 8.3e-17
+  phi= 60 deg  m_z top=+0.1241 m  bottom=-0.1825 m   |numeric-closed| = 5.6e-17
+  phi= 90 deg  m_z top=+0.1395 m  bottom=-0.2031 m   |numeric-closed| = 2.8e-17
+  straight rank W = 5  singular values [1.6916 1.6101 1.6101 0.0296 0.0296 0.    ]
+           pretension mode (t>0 with W t=0): True  -> fully constrained (closure): False   level pose feasible under gravity: True
+           max feasible |roll| 1.91 deg  |pitch| 1.91 deg  |yaw| 0.00 deg  (search limit 30)
+           yaw stiffness K_zz = 21.991 N m/rad  -> static yaw under 0.3 N m: 0.78 deg
+  crossed  rank W = 6  singular values [1.6637 1.6637 1.6501 0.2882 0.2882 0.2747]
+           pretension mode (t>0 with W t=0): False  -> fully constrained (closure): False   level pose feasible under gravity: True
+           max feasible |roll| 28.64 deg  |pitch| 28.64 deg  |yaw| 30.00 deg  (search limit 30)
+           yaw stiffness K_zz = 968.906 N m/rad  -> static yaw under 0.3 N m: 0.05 deg
+  straight roll 1.0: feasible
+  straight, roll 2.0 deg: Farkas certificate y = [-0.0415  0.0675  0.0091 -0.7836 -0.4026 -1.    ]
+  straight, roll 5.0 deg: Farkas certificate y = [ 0.0951  0.073   0.0008 -0.711   1.     -0.1098]
+====================================================================================================
+CLAIM 2  live reconfiguration: sweep the crossing angle (top +phi, bottom -phi)
+----------------------------------------------------------------------------------------------------
+  phi= 0: sigma_min=0.0000  level feasible=True  max T(level)= 11.2 N  max|roll|= 1.91  max|yaw|= 0.00 deg
+  phi= 5: sigma_min=0.0266  level feasible=True  max T(level)= 12.5 N  max|roll|= 1.56  max|yaw|= 1.01 deg
+  phi=10: sigma_min=0.0385  level feasible=True  max T(level)= 12.5 N  max|roll|= 1.71  max|yaw|= 2.05 deg
+  phi=15: sigma_min=0.0477  level feasible=True  max T(level)= 12.5 N  max|roll|= 2.02  max|yaw|= 3.12 deg
+  phi=20: sigma_min=0.0588  level feasible=True  max T(level)= 12.5 N  max|roll|= 2.67  max|yaw|= 4.26 deg
+  phi=25: sigma_min=0.0711  level feasible=True  max T(level)= 12.6 N  max|roll|= 3.64  max|yaw|= 5.49 deg
+  phi=30: sigma_min=0.0846  level feasible=True  max T(level)= 12.6 N  max|roll|= 5.05  max|yaw|= 6.86 deg
+  phi=35: sigma_min=0.0990  level feasible=True  max T(level)= 12.6 N  max|roll|= 5.62  max|yaw|= 8.39 deg
+  phi=40: sigma_min=0.1143  level feasible=True  max T(level)= 12.7 N  max|roll|= 6.16  max|yaw|=10.15 deg
+  phi=45: sigma_min=0.1303  level feasible=True  max T(level)= 12.7 N  max|roll|= 6.98  max|yaw|=12.21 deg
+  phi=50: sigma_min=0.1470  level feasible=True  max T(level)= 12.8 N  max|roll|= 8.10  max|yaw|=14.68 deg
+  phi=55: sigma_min=0.1642  level feasible=True  max T(level)= 12.8 N  max|roll|= 9.55  max|yaw|=17.71 deg
+  phi=60: sigma_min=0.1818  level feasible=True  max T(level)= 12.8 N  max|roll|=11.40  max|yaw|=21.55 deg
+  phi=65: sigma_min=0.1996  level feasible=True  max T(level)= 12.9 N  max|roll|=13.71  max|yaw|=26.54 deg
+  phi=70: sigma_min=0.2176  level feasible=True  max T(level)= 13.0 N  max|roll|=16.55  max|yaw|=30.00 deg
+  phi=75: sigma_min=0.2355  level feasible=True  max T(level)= 13.0 N  max|roll|=19.99  max|yaw|=30.00 deg
+  phi=80: sigma_min=0.2534  level feasible=True  max T(level)= 13.1 N  max|roll|=22.33  max|yaw|=30.00 deg
+  phi=85: sigma_min=0.2710  level feasible=True  max T(level)= 13.1 N  max|roll|=25.15  max|yaw|=30.00 deg
+  phi=90: sigma_min=0.2747  level feasible=True  max T(level)= 13.2 N  max|roll|=28.64  max|yaw|=30.00 deg
+====================================================================================================
+CLAIM 3  drone thrust/tilt limits as tension bounds (crossed layout)
+----------------------------------------------------------------------------------------------------
+  tilt cap  t <= m g tan(th) / (cos(beta) - sin(beta) tan(th)),  active only if beta < 90 - th (beta = cable elevation)
+    beta=40 deg: cap @25=   19.6 N  @35=   43.5 N  @45=  159.2 N
+    beta=45 deg: cap @25=   24.2 N  @35=   64.8 N  @45=    inf N
+    beta=50 deg: cap @25=   32.0 N  @35=  129.1 N  @45=    inf N
+    beta=52 deg: cap @25=   36.9 N  @35=  215.0 N  @45=    inf N
+    beta=55 deg: cap @25=   47.8 N  @35=    inf N  @45=    inf N
+    beta=60 deg: cap @25=   95.1 N  @35=    inf N  @45=    inf N
+  drone altitude 3.5 m (drone-cable elevation 49 deg at level): winch  87.2%  thrust  87.2%  tilt45  87.2%  tilt35  87.2%  tilt25  85.1%
+  drone altitude 3.0 m (drone-cable elevation 41 deg at level): winch 100.0%  thrust 100.0%  tilt45 100.0%  tilt35  77.9%  tilt25  54.9%
+  drone altitude 2.75 m (drone-cable elevation 36 deg at level): winch  78.1%  thrust  78.1%  tilt45  66.9%  tilt35  66.7%  tilt25  33.3%
+  E3 test pose (drone altitude 3.0 m): dz=0.3 roll=-14.0 pitch=0.0 yaw=-15.0 -> controller needs drone tilt 38.2 deg (thrust 52.5 N): predicted FAIL with 35 deg limit, PASS with 45 deg
+
+wrote /home/siddharth/cdpr/isaac_cdpr/results/theory.json and figures

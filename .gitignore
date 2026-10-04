@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+# large or regenerated outputs
+renders/
+recordings/
+logs/
+# textures, tags and skies are generated on first run; Poly Haven assets (CC0) come from tools/fetch_assets.py
+assets/
+# raw experiment logs (the summaries, figures and JSON are kept)
+results/*.csv
+results/*.log
+results/*.out
+results/*.npy
+results/*.npz
+results/first_pass/
+results/second_pass/
+results/hybrid_pd_only/
+# working notes with unpublished results
+docs/RESEARCH_NOTES.md

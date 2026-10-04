@@ -1,0 +1,55 @@
+{
+ "E1_straight": {
+  "yaw_defl_pred": 0.7816098416087018,
+  "yaw_defl_sim": 0.8034955583935619,
+  "roll_cmd": 10.0,
+  "roll_sim": 1.9178374122722077,
+  "roll_max_feasible_pred": 1.910753458738327,
+  "tension_min_sim": 0.0,
+  "tension_max_sim": 13.657854807557348
+ },
+ "E1_crossed": {
+  "yaw_defl_pred": 0.05333150526578969,
+  "yaw_defl_sim": 0.10179646028825769,
+  "roll_cmd": 10.0,
+  "roll_sim": 9.990671651826297,
+  "roll_max_feasible_pred": 28.638415409624578,
+  "tension_min_sim": 6.684419442860517,
+  "tension_max_sim": 16.11810843030387
+ },
+ "E2_reconfig": {
+  "roll_while_straight": 1.9850914341545316,
+  "morph_tension_min": 8.323045511461407,
+  "morph_tension_max": 15.955404055690256,
+  "morph_pos_err_max_mm": 1.2486025082094476,
+  "morph_tilt_max": 0.9044085531821503,
+  "roll_after": 9.984945875637122,
+  "yaw_after": 14.999676005855854,
+  "cross_final": [
+   90.0,
+   -90.0
+  ]
+ },
+ "E3_tilt35": {
+  "required_tilt_pred": 38.20069706725293,
+  "drone_tilt_max": 35.00019405599331,
+  "drone_pos_err_max": 0.1288326604636,
+  "platform_pos_err": 0.002472537677100397,
+  "platform_rpy_err": [
+   0.009918931401992737,
+   0.06792773713569612,
+   0.3865007552138593
+  ]
+ },
+ "E3_tilt45": {
+  "required_tilt_pred": 38.20069706725293,
+  "drone_tilt_max": 58.102544542261874,
+  "drone_pos_err_max": 0.14102557533893886,
+  "platform_pos_err": 0.0070659117806146,
+  "platform_rpy_err": [
+   0.9844958393895968,
+   -0.2923788291923476,
+   0.16362260957701125
+  ]
+ }
+}

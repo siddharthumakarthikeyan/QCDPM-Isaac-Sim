@@ -1,0 +1,203 @@
+# Mobile cable-driven parallel robot (4 quadrotors + 4 diff-drive UGVs, 8 winched cables, 6-DOF cube platform).
+# SI units throughout (m, kg, s, N, rad). World frame: z up, ground at z = 0.
+# Values marked (given) come from the physical system; everything else is a chosen, documented default.
+
+sim:
+  physics_dt: 0.001          # 1 kHz: cable axial mode ~55 Hz, drone attitude loop ~400 Hz class -> needs <= 2 ms
+  render_dt: 0.0333333       # 30 Hz cameras / viewport
+  control_rates:             # controllers run at realistic embedded rates; cable/winch/rotor physics at physics_dt
+    drone: 500               # flight controller (PX4-class rate loop)
+    platform: 250            # CDPR IK + tension distribution
+    ugv: 100                 # base controller
+  solver: TGS
+  device: cpu                # few bodies, many per-step Python reads -> CPU PhysX avoids GPU<->host copies
+  gravity: 9.81
+
+platform:
+  side: 0.30                 # cube edge [m]
+  mass: 3.0                  # (given) [kg]; inertia from a solid cube
+  start_position: [0.0, 0.0, 1.30]
+  # Cable attachment points are the 8 cube corners (given). Top corners -> drones, bottom corners -> UGVs.
+  apriltag:
+    family: tag36h11
+    top_id: 0
+    size: 0.20               # edge of the black square [m] (what apriltag_ros calls `size`)
+    # the gripper flange occupies the centre of the bottom face, so the bottom carries a 4-tag bundle around it
+    bottom_ids: [1, 2, 3, 4]
+    bottom_size: 0.06
+    bottom_offset: 0.085     # tag centres at (+-offset, +-offset) on the bottom face
+
+# Anchor layout: robots sit at the corners of a large box around the platform. Corner k (k=0..3) of the platform
+# is at azimuth 45 + 90k deg; its robot is placed at that azimuth + `cross_angle`.
+#   cross 0      (PhD design): each corner connects to its own adjacent robot, cables run straight out.
+#                All cable lines pass through the vertical axis, so no cable can make a yaw moment: x, y, z, roll,
+#                pitch are controlled, yaw is held only passively by pretension (structure matrix rank 5).
+#   cross +90/-90 (default): top/bottom corners wired to the neighbouring robot -> full 6-DOF (rank 6) and the
+#                highest stiffness with tool + payload (10.3 kN/m, 531 N m/rad vs 22 N m/rad yaw for straight).
+layout:
+  drone_radius: 1.8
+  drone_altitude: 4.5        # fairlead height [m]; 4.5 m keeps drone tilt <= 18 deg / thrust <= 52% over the whole
+                             # block-assembly working range (platform z 0.68-1.48 m with tool + 2.2 kg block)
+  drone_cross_angle_deg: 90.0     # crossed +-90: stiffest layout under a working load (see docs/RESEARCH_NOTES.md)
+  ugv_radius: 2.75
+  ugv_cross_angle_deg: -90.0
+  hold_fraction: 0.7              # robots stay put while the platform is within this fraction of the region the winches
+                                  # alone can serve (cdpr_control.hold_table: tension limits + drone tilt/thrust caps, per
+                                  # height) and then move only as far as needed. 0 = formation always centred on the platform
+  formation_acc: 0.8              # acceleration limit of the formation centre [m/s^2] (below the ground robots' 1.0), so the
+                                  # eight robots start and stop as one rigid formation. 0 = no limit
+
+cable:                       # 2 mm braided UHMWPE (Dyneema SK78) rope
+  diameter: 0.002
+  EA: 1.0e+5                 # effective axial stiffness [N] (fibre E ~109 GPa x A, derated ~30% for braid)
+  damping_EA: 30.0           # Kelvin-Voigt material damping [N s]  -> c = damping_EA / L
+  linear_density: 0.0026     # [kg/m] (lumped half to each end; sag < 3 mm at 5 N, so no catenary model)
+  min_length: 0.10
+  max_length: 8.0
+
+winch:                       # identical drum winch on every robot, lumped motor + gearbox at the drum
+  drum_radius: 0.02
+  inertia: 2.0e-3            # reflected at drum [kg m^2] -> 5 kg equivalent cable-axis mass
+  viscous: 2.0e-3            # [N m s/rad]
+  coulomb: 0.02              # [N m]
+  max_torque: 3.0            # [N m] -> 150 N max cable force
+  max_speed: 50.0            # [rad/s] -> 1.0 m/s cable speed
+  # length-mode servo (in cable coordinates): F = -T_ff + m_eq * (wn^2 e + 2 zeta wn e_dot)
+  wn: 50.0                   # winch length-servo bandwidth (in series with each cable: sets platform stiffness)
+  zeta: 0.9
+  tension_min: 5.0           # controller tension bounds [N]
+  tension_max: 60.0
+  tension_ref: 15.0          # preferred tension; the 2-D null space is used to stay close to it
+  drone_cable_mode: tension   # "length": all winches track IK lengths (tension = feed-forward only). Under a
+                              #   changing load this let the drones run away (tilt-tension coupling, see notes)
+                              # "tension": drone winches regulate tension (paying out when a drone saturates),
+                              #            UGV winches keep length control; platform pose closed through a wrench PD
+  hybrid_pd: {wn: 7.0, zeta: 0.9, ki_ratio: 0.5}   # platform wrench PID in "tension" mode: kp = wn^2,
+                                                 # kd = 2 zeta wn, ki = ki_ratio wn^3
+  platform_damping: {lin: 0.0, rot: 0.0}   # active damping wrench through the tension feed-forward [N s/m, N m s/rad].
+                                           # OFF: at 250 Hz through the length servos it excited a 28 Hz cable mode
+                                           # (load cell std 4 N vs 0.03 N without); crossed layout is stable without it
+  tension_damping: 2.5e-3    # lambda = sigma_c^2 with sigma_c = 0.05 m: wrench directions the cables can barely
+                             # produce are not forced (avoids slack/spikes near singular layouts, e.g. phi ~ 0)
+
+drone:                       # generic 450 mm-class X quadrotor carrying a winch
+  mass: 2.0                  # incl. 0.25 kg winch
+  inertia: [0.025, 0.025, 0.045]
+  arm_length: 0.225
+  body_size: [0.18, 0.18, 0.08]
+  rotor_max_thrust: 20.0     # per rotor [N]  -> T/W ~ 4 (cable pull can reach ~2x platform share)
+  rotor_kf: 2.0e-5           # thrust = kf w^2  (w_max = 1000 rad/s)
+  rotor_km_over_kf: 0.016    # drag torque / thrust [m]
+  motor_tau: 0.025           # first-order rotor speed time constant [s]
+  drag_linear: 0.30          # rotor-induced drag [N s/m] (horizontal, body frame)
+  drag_quadratic: 0.06       # 0.5 rho Cd A [kg/m]
+  attach_offset: [0.0, 0.0, -0.08]   # winch fairlead below the CoM
+  control:                   # geometric SE(3) controller (Lee et al. 2010), runs at physics rate
+    kp: [6.0, 6.0, 8.0]
+    kd: [4.5, 4.5, 5.5]
+    ki: [0.5, 0.5, 1.0]
+    i_limit: 6.0             # [N] integral authority
+    kR: [10.0, 10.0, 4.0]
+    kW: [0.8, 0.8, 0.5]
+    cable_feedforward: true  # use winch load cell tension x estimated cable direction
+    tension_caps:            # drone-aware tension distribution: cap drone-cable tension at the closed-form limit
+      enabled: false
+      tilt_margin_deg: 3.0   # cap at (max_tilt - margin) to leave attitude authority
+      thrust_fraction: 0.85  # and at this fraction of total rotor thrust
+    max_tilt_deg: 45.0       # a drone holding a lateral cable load needs more tilt than free flight
+
+ugv:                         # generic two-wheel differential-drive base (Pioneer/Jackal class) with winch mast
+  chassis_size: [0.50, 0.40, 0.20]
+  chassis_mass: 18.0         # incl. winch + batteries
+  wheel_radius: 0.10
+  wheel_width: 0.05
+  wheel_mass: 1.0
+  track_width: 0.44          # wheel centre-to-centre
+  caster_radius: 0.04
+  caster_offset_x: 0.20      # front and rear ball casters
+  ground_clearance: 0.04
+  caster_lift: 0.004         # casters ride this far above the ground, so the drive wheels carry the weight (the base
+                             # rocks onto one caster under a cable pull). With the casters level with the wheels they
+                             # shared the load and a robot under a 30 N cable pull spun out when it had to drive off
+  attach_height: 0.35        # fairlead height above ground [m]
+  wheel_max_torque: 15.0     # [N m]
+  wheel_max_speed: 15.0      # [rad/s] -> 1.5 m/s
+  wheel_drive_damping: 50.0  # joint velocity servo gain [N m s/rad]
+  max_lin_acc: 1.0
+  max_ang_acc: 2.0
+  friction: {static: 0.9, dynamic: 0.8}       # rubber on concrete
+  caster_friction: {static: 0.02, dynamic: 0.02}
+
+ground:
+  friction: {static: 0.9, dynamic: 0.8}
+  size: 40.0
+
+environment:
+  type: tiles                # "tiles": plain white tiled floor (light, default) | "sand": sand lot with the delivery
+                             # truck (cdpr_sim/sandsite.py, local files only; used for the video renders) | "site": 3D construction site
+                             # (cdpr_sim/site.py, heavy) | "lab": textured room (VO/lidar tests)
+  sun_elevation_deg: 48.0    # analytic Preetham daylight sky + matching sun (generated, no photographs)
+  sun_azimuth_deg: 135.0     # from +x towards +y
+  turbidity: 2.5             # 2 clear .. 6 hazy
+  sky_intensity: 1200.0
+  sun_intensity: 2800.0
+  sand: {sun_elevation_deg: 36.0, sun_azimuth_deg: 150.0, turbidity: 3.2, sun_intensity: 2400.0, sky_intensity: 650.0}   # overrides for "sand"
+  trees: false               # NVIDIA vegetation (large downloads from the asset server; slows startup)
+  remote_assets: false       # forklift / pallets / trees from the Isaac asset server (network; can stall startup)
+
+gripper:                     # parallel-jaw gripper on a motorised wrist yaw joint, hanging below the platform
+  wrist: {mass: 0.35, radius: 0.05, height: 0.08, max_torque: 8.0, stiffness: 40.0, damping: 3.0, max_speed: 2.0}
+  tool: {mass: 0.75, tube_length: 0.25, tube_radius: 0.025, palm: [0.07, 0.20, 0.04]}   # F/T sensor + tube + palm
+  ft_sensor: {stiffness: 2.0e+5, damping: 400.0, feedforward_tau: 0.08}   # axial load cell as a stiff spring
+                                           # [N/m, N s/m]; load feed-forward low-pass time constant [s]
+  finger: {mass: 0.10, size: [0.06, 0.02, 0.12], stroke: 0.14, max_force: 125.0, stiffness: 3000.0, damping: 60.0}
+  pad_friction: {static: 1.0, dynamic: 0.9}   # rubber pads
+  grip_force: 80.0           # commanded squeeze [N] (Robotiq 2F-140 range 10-125 N)
+
+blocks:                      # lightweight hollow masonry module, two cores, dry-stacked (no mortar)
+  size: [0.30, 0.11, 0.15]   # length (x), width (y, gripped across: 15 mm finger clearance per side), height [m]
+  shell: 0.025               # wall and web thickness [m]
+  mass: 2.2                  # ~770 kg/m^3 (aerated concrete / composite); a concrete hollow block this size would be ~8 kg
+  friction: {static: 0.6, dynamic: 0.5}
+  staging: {center: [3.2, 0.0], rows: 4, cols: 3, layers: 4, gap: [0.10, 0.12]}
+
+task:
+  pattern: dome              # dome | compound | column | tower | pyramid
+  joint: 0.006               # gap between neighbouring blocks in a course [m]
+  dome: {base_radius: 0.62, courses: 4, corbel: 0.045}   # ring radius at the block centre line, inward step per course
+  compound: {blocks_per_side: 4, courses: 3}
+  column: {courses: 6}
+  tower: {courses: 6, twist_deg: 22.5}   # 8 courses would need the platform at 2.2 m (72% drone thrust)
+  pyramid: {base: 4}
+  build_center: [0.0, 0.0]
+  transit_clearance: 0.30    # gripper fingertips stay this far above the highest obstacle while moving [m]
+  approach_height: 0.25      # start of the slow vertical descent above pick/place [m]
+  descent_speed: 0.08        # [m/s]
+  transit_speed: 0.45        # platform reference speed while carrying [m/s] (UGVs max 0.6 m/s)
+  contact_force: 12.0        # wrist F/T force change that counts as "block landed" [N]
+
+sensors:
+  enabled: true
+  platform_camera:           # on every robot, on an ideal pan/tilt gimbal pointed at the platform
+    resolution: [1280, 720]
+    hfov_deg: 60.0
+    rate_hz: 30
+    mount_offset_drone: [0.0, 0.0, -0.10]
+    mount_offset_ugv: [0.0, 0.0, 0.30]
+  vo_camera:                 # drones only, forward-looking, pitched down
+    resolution: [640, 480]
+    hfov_deg: 90.0
+    pitch_down_deg: 30.0
+    rate_hz: 30
+    mount_offset: [0.10, 0.0, 0.0]
+  imu:                       # drones only
+    rate_hz: 200
+  lidar_2d:                  # UGVs only. SICK TiM781: 270 deg, 0.05-25 m, 15 Hz (asset fetched from the Isaac asset server)
+    config: SICK_TIM781
+    fallback_config: Example_Rotary_2D   # bundled locally; 360 deg but 1 m minimum range
+    rate_hz: 15
+    mount_offset: [0.15, 0.0, 0.14]
+
+ros:
+  enabled: true
+  domain_id: 42

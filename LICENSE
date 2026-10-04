@@ -1,0 +1,37 @@
+Copyright (c) 2026 Siddharth Umakarthikeyan. All rights reserved.
+
+ACADEMIC AND NON-COMMERCIAL USE LICENCE
+
+This repository (the "Software") is made available for viewing, study and non-commercial academic use. It is not
+open-source software.
+
+1. Permitted use. You may download, run and modify the Software for non-commercial research, teaching and personal
+   study, provided that all the conditions below are met.
+
+2. Citation. Any publication, thesis, report, presentation, video or other public material that uses the Software,
+   results produced with it, or work derived from it must cite:
+
+     S. Umakarthikeyan, "Quadrotor-Based Mobile Cable-Driven Parallel Manipulator", doctoral thesis,
+     SASTRA Deemed to be University, India, July 2025,
+
+   together with this repository: https://github.com/siddharthumakarthikeyan/QCDPM-Isaac-Sim
+
+3. Attribution. This notice must be kept in every copy of the Software and of any substantial part of it. Modified
+   versions must state clearly that they were changed and must not be presented as the original work.
+
+4. No redistribution. You may not publish, sublicense, sell or otherwise distribute the Software or modified
+   versions of it, in source or any other form, without prior written permission from the copyright holder.
+   Forking on GitHub for the purpose of viewing or proposing changes to this repository is permitted.
+
+5. No commercial use. Use of the Software, in whole or in part, in or for a commercial product or service, or for
+   commercial research and development, requires prior written permission from the copyright holder.
+
+6. Permission. Requests for any use not permitted above: siddharthumakarthikeyan@gmail.com
+
+7. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+   NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+   EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+Third-party material: the Poly Haven assets downloaded by tools/fetch_assets.py are CC0 and are not covered by this
+licence. NVIDIA Isaac Sim is a separate product under its own licence.
