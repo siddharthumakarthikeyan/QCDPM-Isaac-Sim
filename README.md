@@ -13,7 +13,7 @@ travels with it.
 
 ![Building a tower of blocks](docs/media/construction.gif)
 
-## The system
+## The Overall system
 
 | | |
 |---|---|
