@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quadrotor-Based Mobile Cable-Driven Parallel Manipulator</title>
+<meta name="description" content="A physics-accurate NVIDIA Isaac Sim model of four quadrotors and four ground robots carrying one 6-DoF platform on eight winched cables. Doctoral research by Siddharth Umakarthikeyan.">
+<meta name="keywords" content="cable-driven parallel robot, CDPR, quadrotor, multi-robot, Isaac Sim, tension distribution, wrench feasibility">
+<link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro&display=swap" rel="stylesheet">
+<style>
+/* Project page in the style of the Nerfies academic template (nerfies.github.io), rebuilt without external CSS. */
+*{box-sizing:border-box;min-width:0}
+html{scroll-padding-top:20px}
+body{margin:0;background:#fff;color:#4a4a4a;font:16px/1.5 "Noto Sans",sans-serif;overflow-x:clip}
+a{color:#3273dc;text-decoration:none}a:hover{color:#363636}
+img{max-width:100%;height:auto;display:block}
+.container{max-width:960px;margin:0 auto;padding:0 24px}
+.narrow{max-width:800px;margin:0 auto}
+.hero{padding:3rem 0 1.5rem;text-align:center}
+.publication-title{font-family:"Google Sans",sans-serif;font-size:3rem;line-height:1.125;color:#363636;font-weight:400;margin:0 0 1.5rem}
+.publication-authors{font-family:"Google Sans",sans-serif;font-size:1.25rem;color:#4a4a4a;margin:0 0 .3rem}
+.publication-affil{font-family:"Google Sans",sans-serif;font-size:1.1rem;color:#4a4a4a;margin:0 0 .3rem}
+.publication-venue{font-family:"Google Sans",sans-serif;font-size:1.1rem;color:#4a4a4a;margin:.3rem 0 1rem}
+.links{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;margin:1.2rem 0 0}
+.button{display:inline-flex;align-items:center;gap:.5em;height:2.5em;padding:0 1.2em;border-radius:290486px;background:#363636;color:#fff;
+  font:400 1rem "Noto Sans",sans-serif;border:0;cursor:pointer}
+.button:hover{background:#2f2f2f;color:#fff}
+.button:focus-visible{outline:3px solid #3273dc;outline-offset:2px}
+.button svg{width:1.05em;height:1.05em;fill:currentColor;flex:none}
+.teaser{padding:0 0 2rem}
+.teaser img{width:100%;border-radius:0}
+.teaser .subtitle{font-family:"Google Sans",sans-serif;font-size:1.25rem;color:#4a4a4a;text-align:center;margin:1rem auto 0;max-width:820px}
+section.section{padding:2.5rem 0}
+section.light{background:#f5f5f5}
+h2.title{font-family:"Google Sans",sans-serif;font-size:2rem;font-weight:600;color:#363636;text-align:center;margin:0 0 1.5rem;line-height:1.125}
+h3.title{font-family:"Google Sans",sans-serif;font-size:1.5rem;font-weight:600;color:#363636;margin:2rem 0 1rem;line-height:1.125}
+.content p{text-align:justify;margin:0 0 1em}
+.content ul{margin:0 0 1em;padding-left:1.5em}.content li{margin:.35em 0}
+.content b{color:#363636}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.5rem}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1.25rem}
+figure{margin:0}
+figcaption{font-size:.95rem;color:#4a4a4a;margin-top:.6rem;text-align:center}
+.full{margin:1.5rem 0}
+.full figcaption{text-align:justify}
+table{width:100%;border-collapse:collapse;font-size:.95rem;margin:1rem 0}
+th,td{padding:.5em .75em;border-bottom:1px solid #dbdbdb;text-align:left;vertical-align:top}
+th{color:#363636;font-weight:600;border-bottom-width:2px}
+.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.bibwrap{position:relative}
+pre{background:#fff;border:1px solid #dbdbdb;color:#4a4a4a;padding:1.25rem 1.5rem;overflow-x:auto;font:.875rem/1.5 monospace;margin:0;border-radius:4px}
+.copy{position:absolute;top:.6rem;right:.6rem;height:2em;font-size:.85rem}
+footer{padding:3rem 0 4rem;font-size:.9rem;color:#4a4a4a;text-align:center}
+footer p{margin:.4rem auto;max-width:720px}
+@media(max-width:768px){.publication-title{font-size:2rem}.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.grid2,.grid3{grid-template-columns:minmax(0,1fr)}.publication-authors{font-size:1.1rem}table{font-size:.85rem}th,td{padding:.45em .4em}}
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="container narrow">
+    <h1 class="publication-title">Quadrotor-Based Mobile Cable-Driven Parallel Manipulator</h1>
+    <p class="publication-authors"><a href="https://github.com/siddharthumakarthikeyan">Siddharth Umakarthikeyan</a></p>
+    <p class="publication-affil">SASTRA Deemed to be University, India</p>
+    <p class="publication-venue">Doctoral Thesis, 2025 · Supervised by Dr. Badri Narayanan R</p>
+    <div class="links">
+      <a class="button" href="model/cdpr_model.pdf"><svg viewBox="0 0 384 512"><path d="M181.9 256.1c-5-16-4.9-46.9-2-46.9 8.4 0 7.6 36.9 2 46.9zm-1.7 47.2c-7.7 20.2-17.3 43.3-28.4 62.7 18.3-7 39-17.2 62.9-21.9-12.7-9.6-24.9-23.4-34.5-40.8zM86.1 428.1c0 .8 13.2-5.4 34.9-40.2-6.7 6.3-29.1 24.5-34.9 40.2zM248 160h136v328c0 13.3-10.7 24-24 24H24c-13.3 0-24-10.7-24-24V24C0 10.7 10.7 0 24 0h200v136c0 13.2 10.8 24 24 24zm-8 171.8c-20-12.2-33.3-29-42.7-53.8 4.5-18.5 11.6-46.6 6.2-64.2-4.7-29.4-42.4-26.5-47.8-6.8-5 18.3-.4 44.1 8.1 77-11.6 27.6-28.7 64.6-40.8 85.8-.1 0-.1.1-.2.1-27.1 13.9-73.6 44.5-54.5 68 5.6 6.9 16 10 21.5 10 17.9 0 35.7-18 61.1-61.8 25.8-8.5 54.1-19.1 79-23.2 21.7 11.8 47.1 19.5 64 19.5 29.2 0 31.2-32 19.7-43.4-13.9-13.6-54.3-9.7-73.6-7.2zM377 105L279 7c-4.5-4.5-10.6-7-17-7h-6v128h128v-6.1c0-6.3-2.5-12.4-7-16.9z"/></svg>Model</a>
+      <a class="button" href="https://github.com/siddharthumakarthikeyan/QCDPM-Isaac-Sim"><svg viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8z"/></svg>Code</a>
+      <a class="button" href="#publications"><svg viewBox="0 0 448 512"><path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm253.4 250H96c-17.7 0-32-14.3-32-32 0-17.6 14.4-32 32-32h285.4c-1.9 17.1-1.9 46.9 0 64z"/></svg>Papers</a>
+      <a class="button" href="https://github.com/siddharthumakarthikeyan/Quadrotor-Based-Cable-Driven-Parallel-Manipulator"><svg viewBox="0 0 640 512"><path d="M278.9 511.5l-61-17.7c-6.4-1.8-10-8.5-8.2-14.9L346.2 8.7c1.8-6.4 8.5-10 14.9-8.2l61 17.7c6.4 1.8 10 8.5 8.2 14.9L293.8 503.3c-1.9 6.4-8.5 10.1-14.9 8.2zm-114-112.2l43.5-46.4c4.6-4.9 4.3-12.7-.8-17.2L117 256l90.6-79.7c5.1-4.5 5.5-12.3.8-17.2l-43.5-46.4c-4.5-4.8-12.1-5.1-17-.5L3.8 247.2c-5.1 4.7-5.1 12.8 0 17.5l144.1 135.1c4.9 4.6 12.5 4.4 17-.5zm327.2.6l144.1-135.1c5.1-4.7 5.1-12.8 0-17.5L492.1 112.1c-4.8-4.5-12.4-4.3-17 .5L431.6 159c-4.6 4.9-4.3 12.7.8 17.2L523 256l-90.6 79.7c-5.1 4.5-5.5 12.3-.8 17.2l43.5 46.4c4.5 4.9 12.1 5.1 17 .6z"/></svg>ROS / CoppeliaSim</a>
+      <a class="button" href="#BibTeX"><svg viewBox="0 0 512 512"><path d="M464 32H336c-26.5 0-48 21.5-48 48v128c0 26.5 21.5 48 48 48h80v64c0 35.3-28.7 64-64 64h-8c-13.3 0-24 10.7-24 24v48c0 13.3 10.7 24 24 24h8c88.4 0 160-71.6 160-160V80c0-26.5-21.5-48-48-48zm-288 0H48C21.5 32 0 53.5 0 80v128c0 26.5 21.5 48 48 48h80v64c0 35.3-28.7 64-64 64h-8c-13.3 0-24 10.7-24 24v48c0 13.3 10.7 24 24 24h8c88.4 0 160-71.6 160-160V80c0-26.5-21.5-48-48-48z"/></svg>BibTeX</a>
+    </div>
+  </div>
+</section>
+
+<section class="teaser">
+  <div class="container">
+    <img src="media/system-wide.jpg" width="1280" height="536" alt="Four quadrotors and four ground robots holding a cable-suspended platform on a build site">
+    <p class="subtitle"><b>QCDPM</b> moves a 6-DoF platform with four quadrotors and four ground robots on eight winched cables, so the workspace travels with the machine.</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container narrow">
+    <h2 class="title">Abstract</h2>
+    <div class="content">
+      <p>A cable-driven parallel robot whose anchors are themselves robots has no fixed frame, and its workspace travels with it. We present a physics-accurate model of such a machine in NVIDIA Isaac Sim: four quadrotors as upper anchors and four differential-drive ground robots as lower anchors carry a 6-DoF platform on eight winched cables. The platform is moved in three ways at once: the robots move, the winches change the cable lengths, and the cable tensions are redistributed.</p>
+      <p>The system is modelled from the single cable up, with cable slack, winch drum dynamics, rotor dynamics and ground-robot traction, on PhysX at 1 kHz. We prove that straight cables leave the platform without yaw authority (structure matrix rank 5) while crossed cables give full 6-DoF control, that the crossing can be changed while the system runs, and that drone thrust and tilt limits act as tension bounds. Every analytical prediction is tested in simulation. A hybrid tension/length winch scheme remains stable where all-length control diverges, and a C++17 / Eigen core closes the loop from simulated sensors with error-state estimation, an exactly solved bounded tension distribution and 3-D team path planning. The system tracks a 3-D figure-eight, plans the whole team around obstacles, stacks blocks with 1.7 mm mean placement error, paints an aircraft wing and 3D-prints a 51 m continuous spiral.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <h2 class="title">System</h2>
+    <div class="grid2">
+      <figure><img src="media/drone.jpg" width="1280" height="536" alt="Quadrotor anchor with winch" loading="lazy"><figcaption><b>Quadrotors (4).</b> 2 kg, 450 mm class, geometric SE(3) control at 500 Hz, rotor dynamics, winch with load cell.</figcaption></figure>
+      <figure><img src="media/ground-robot.jpg" width="1280" height="536" alt="Differential-drive ground robot with winch mast" loading="lazy"><figcaption><b>Ground robots (4).</b> 20 kg differential-drive base with a winch mast; wheel servo in PhysX.</figcaption></figure>
+      <figure><img src="media/end-effector.jpg" width="1280" height="536" alt="Platform with gripper and force sensor" loading="lazy"><figcaption><b>Platform.</b> 0.30 m cube, 3 kg, AprilTags, wrist force sensor and parallel gripper.</figcaption></figure>
+      <figure><img src="media/cables-from-below.jpg" width="1280" height="536" alt="Cables seen from below" loading="lazy"><figcaption><b>Cables and winches.</b> 2 mm UHMWPE rope as a spring-damper with slack; drum winch with inertia, friction and limits.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container narrow">
+    <h2 class="title">Method</h2>
+    <div class="content">
+      <ul>
+        <li><b>Platform control.</b> Inverse kinematics and a closed-form, bounded, damped tension distribution at 250 Hz.</li>
+        <li><b>Hybrid cable control.</b> Drone winches regulate tension, ground winches regulate length, and the pose loop is closed with a wrench PID.</li>
+        <li><b>Reconfigurable cable layout.</b> Each platform corner is wired straight to its own robot or crossed to the neighbouring robot; the crossing angle changes while the system runs.</li>
+        <li><b>Formation.</b> The robots hold position while the platform is inside the region the winches alone can serve, and move only as far as needed when it leaves.</li>
+        <li><b>Team path planning.</b> RRT* with pruning and Bézier smoothing; ground robots and all eight cables are checked against obstacles.</li>
+        <li><b>Estimation (C++ core).</b> IMU-driven error-state filter per drone, odometry with pose fixes per ground robot, and a platform observer driven by measured cable tensions and corrected by cable lengths and AprilTag poses, which also estimates the payload.</li>
+        <li><b>Control (C++ core).</b> SE(3) tracking wrench; bounded tension distribution solved exactly under winch, drone tilt and thrust, and ground-robot sliding and tipping limits; geometric drone control with cable feed-forward; closed-loop eigenvalue stability check.</li>
+        <li><b>3-D planning (C++ core).</b> Elevation map from drone depth cameras and ground-robot lidars, 3-D A* for the whole team, re-planned while moving.</li>
+        <li><b>ROS 2.</b> Platform commands and ground truth, per-cable length, rate and tension, tension-distribution output and per-robot odometry and IMU, on simulation time.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <h2 class="title">Theory and Simulation</h2>
+    <div class="content narrow">
+      <p>The yaw moment arm of cable <i>i</i> at the level pose is m<sub>z,i</sub> = r ρ<sub>i</sub> sin φ<sub>i</sub> / L<sub>i</sub>, so straight cables (φ = 0) give no yaw authority and crossing them restores it. Each prediction below is derived analytically and then measured in Isaac Sim.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Quantity</th><th class="n">Straight</th><th class="n">Crossed</th></tr></thead>
+        <tbody>
+          <tr><td>Rank of the structure matrix W</td><td class="n">5</td><td class="n">6</td></tr>
+          <tr><td>Yaw stiffness K<sub>zz</sub></td><td class="n">22.0 N·m/rad</td><td class="n">968.9 N·m/rad</td></tr>
+          <tr><td>Maximum feasible roll, predicted</td><td class="n">1.91°</td><td class="n">28.64°</td></tr>
+          <tr><td>Roll reached for a 10° command, simulated</td><td class="n">1.92°</td><td class="n">9.99°</td></tr>
+          <tr><td>Yaw deflection under 0.3 N·m, predicted / simulated</td><td class="n">0.78° / 0.80°</td><td class="n">0.05° / 0.10°</td></tr>
+          <tr><td>Minimum cable tension in the roll test, simulated</td><td class="n">0 N (slack)</td><td class="n">6.7 N</td></tr>
+        </tbody>
+      </table></div>
+      <p>Switching from straight to crossed cables live, the platform stays within 1.25 mm of its position and 0.9° of level with every cable between 8.3 N and 16.0 N, then reaches a 10° roll and 15° yaw that the straight layout cannot.</p>
+    </div>
+    <figure class="full"><img src="media/figures/theory.png" width="1950" height="546" alt="Yaw moment arm, orientation workspace and drone-limit feasibility" loading="lazy"><figcaption><b>Analysis.</b> Left: closed-form yaw moment arm against the numeric structure matrix. Centre: feasible roll and yaw grow with the crossing angle. Right: share of feasible poses as winch, thrust and drone-tilt limits are added, for three drone altitudes.</figcaption></figure>
+    <figure class="full"><img src="media/figures/experiments.png" width="1920" height="960" alt="Simulation experiments E1 to E3" loading="lazy"><figcaption><b>Experiments E1–E3.</b> Dashed lines are the analytical predictions. In E3 the test pose needs 38.2° of drone tilt: with a 35° limit the platform holds within 2.5 mm, with 45° the drones oscillate.</figcaption></figure>
+    <figure class="full"><img src="media/figures/tilt_sweep.png" width="1920" height="504" alt="Tilt-limit sweep" loading="lazy"><figcaption><b>Tilt-limit sweep.</b> All-length control goes unstable from a 38° limit, while hybrid tension/length control stays bounded at every limit tested.</figcaption></figure>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <h2 class="title">Results</h2>
+    <figure class="full" style="margin-top:0"><img src="media/construction.gif" width="560" height="235" alt="The team stacking blocks into a tower" loading="lazy" style="width:100%;max-width:760px;margin:0 auto"><figcaption style="text-align:center"><b>Block assembly.</b> Blocks picked from a pallet and stacked by the cable-suspended platform.</figcaption></figure>
+    <div class="grid3">
+      <figure><img src="media/tracking-close.jpg" width="1280" height="536" alt="Figure-eight trajectory tracking" loading="lazy"><figcaption><b>Trajectory tracking.</b> 3-D figure-eight, 1.8 × 1.2 × 0.5 m.</figcaption></figure>
+      <figure><img src="media/around-the-cabin.jpg" width="1280" height="536" alt="Team planning around a site cabin" loading="lazy"><figcaption><b>Team planning.</b> The team, cables included, passes a cabin and a pallet.</figcaption></figure>
+      <figure><img src="media/tower.jpg" width="1280" height="536" alt="Block tower" loading="lazy"><figcaption><b>Block tower.</b> Six 2.2 kg blocks; 1.7 mm mean, 3.6 mm max error.</figcaption></figure>
+      <figure><img src="media/enclosure.jpg" width="1280" height="536" alt="Block enclosure" loading="lazy"><figcaption><b>Block enclosure.</b> 42 blocks in three courses; 12.7 mm mean error.</figcaption></figure>
+      <figure><img src="media/painting-finished.jpg" width="1280" height="536" alt="Aircraft wing painting" loading="lazy"><figcaption><b>Wing painting.</b> Four lanes over the upper skin; 3.4 mm mean tracking error.</figcaption></figure>
+      <figure><img src="media/printing-finished.jpg" width="1280" height="536" alt="Large-scale 3D printing" loading="lazy"><figcaption><b>3D printing.</b> Continuous 51 m spiral in 30 mm layers; 5.3 mm mean error.</figcaption></figure>
+    </div>
+    <div class="content narrow">
+      <h3 class="title">Limitations</h3>
+      <p>This is a simulation and has not been run on hardware. By default the controllers use ground-truth poses; with the C++ core they run from sensor models, and rendered camera images and lidar scans are published but not processed in the loop. Dense builds are not solved: in the enclosure, 19 of 42 blocks are more than 10 mm off, and the dome pattern does not stand. Physics runs at about 0.3× real time. Paint film, printed bead and supply hose are drawn along the recorded tool path for the renders and put no load on the platform.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="publications">
+  <div class="container narrow">
+    <h2 class="title">Publications</h2>
+    <div class="content">
+      <ul>
+        <li><i>Expanding the wrench-feasible workspace of quadrotor-based cable-driven manipulators.</i> Computers and Electrical Engineering, Elsevier, 2024.</li>
+        <li><i>Sampling-based 3D path planning for heterogeneous multi-robot cable-driven systems.</i> Journal of the Brazilian Society of Mechanical Sciences and Engineering, Springer, 2025.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section light" id="BibTeX">
+  <div class="container narrow">
+    <h2 class="title" style="text-align:left">BibTeX</h2>
+    <div class="bibwrap">
+      <button class="button copy" id="copyBib" type="button">Copy</button>
+<pre id="bibtex">@phdthesis{umakarthikeyan_qcdpm,
+  author = {Umakarthikeyan, Siddharth},
+  title  = {Quadrotor-Based Mobile Cable-Driven Parallel Manipulator},
+  school = {SASTRA Deemed to be University},
+  year   = {2025},
+  month  = jul,
+  note   = {Simulation: https://github.com/siddharthumakarthikeyan/QCDPM-Isaac-Sim}
+}</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>The code is free to view and use for non-commercial research and teaching with citation. See the <a href="https://github.com/siddharthumakarthikeyan/QCDPM-Isaac-Sim/blob/main/LICENSE">licence</a>.</p>
+    <p>This page is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>. Website design adapted from the <a href="https://nerfies.github.io/">Nerfies</a> project page template.</p>
+  </div>
+</footer>
+
+<script>
+{
+  const btn = document.getElementById('copyBib');
+  btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(document.getElementById('bibtex').textContent); btn.textContent = 'Copied'; }
+    catch (e) { btn.textContent = 'Select to copy'; }
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+  });
+}
+</script>
+</body>
+</html>
