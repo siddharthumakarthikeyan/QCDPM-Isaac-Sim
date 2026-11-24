@@ -5,6 +5,8 @@ A physics-accurate simulation of the system from the doctoral thesis *Quadrotor-
 Manipulator* (Dr. Siddharth Umakarthikeyan, SASTRA Deemed to be University, India), built on NVIDIA Isaac Sim 6.0
 with PhysX at 1 kHz.
 
+**Project page:** https://siddharthumakarthikeyan.github.io/QCDPM-Isaac-Sim/
+
 ![The system on the build site](docs/media/poster.jpg)
 
 The platform is moved in three ways at once: the robots move, the winches change the cable lengths, and the cable
